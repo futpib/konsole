@@ -17,6 +17,7 @@ class TmuxIntegrationTest : public QObject
 
 private Q_SLOTS:
     void testTmuxControlModeExitCleanup();
+    void testClosePaneTabThenGatewayTab();
 };
 
 }

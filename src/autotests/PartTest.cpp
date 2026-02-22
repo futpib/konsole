@@ -115,7 +115,7 @@ void PartTest::testFd(bool runShell)
                                 : QStringLiteral("Output of 'ping localhost' should appear standalone below for 5 seconds");
     layout->addWidget(new QLabel(explanation));
     layout->addWidget(terminalPart->widget());
-    QTimer::singleShot(5000, dialog.data(), &QDialog::close);
+    QTimer::singleShot(500, dialog.data(), &QDialog::close);
     dialog.data()->exec();
 
     delete terminalPart;

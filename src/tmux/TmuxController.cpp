@@ -199,6 +199,10 @@ Session *TmuxController::createPaneSession(int paneId)
 
     connect(session->emulation(), &Emulation::imageSizeChanged, this, &TmuxController::onPaneViewSizeChanged);
 
+    connect(session, &QObject::destroyed, this, [this, paneId]() {
+        _paneToSession.remove(paneId);
+    });
+
     _paneToSession[paneId] = session;
     return session;
 }

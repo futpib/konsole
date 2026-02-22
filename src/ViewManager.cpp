@@ -710,6 +710,10 @@ void ViewManager::sessionFinished(Session *session)
         return;
     }
 
+    if (!view) {
+        return;
+    }
+
     // Before deleting the view, let's unmaximize if it's maximized.
     auto *splitter = qobject_cast<ViewSplitter *>(view->parentWidget());
     if (splitter == nullptr) {
