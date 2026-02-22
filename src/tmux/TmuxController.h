@@ -46,6 +46,8 @@ class TmuxController : public QObject
 {
     Q_OBJECT
 public:
+    enum class State { Idle, Initializing, ApplyingLayout, Dragging };
+
     TmuxController(TmuxGateway *gateway, Session *gatewaySession, ViewManager *viewManager, QObject *parent = nullptr);
     ~TmuxController() override;
 
@@ -110,7 +112,7 @@ private:
 
     QString _sessionName;
     int _sessionId = -1;
-    bool _initializing = false;
+    State _state = State::Idle;
 
     QTimer _resizeTimer;
 
@@ -118,12 +120,6 @@ private:
 
     int _lastClientCols = 0;
     int _lastClientLines = 0;
-
-    // Suppress layout application during user-initiated splitter drags
-    bool _dragging = false;
-
-    // Suppress sendClientSize during tmux-initiated layout changes
-    bool _applyingLayout = false;
 
     // Pause mode (tmux 3.2+)
     QSet<int> _pausedPanes;

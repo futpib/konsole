@@ -57,7 +57,7 @@ TmuxController::~TmuxController()
 
 void TmuxController::initialize()
 {
-    _initializing = true;
+    _state = State::Initializing;
     _gateway->sendCommand(QStringLiteral("list-windows -F \"#{window_id} #{window_name} #{window_layout}\""),
                           [this](bool success, const QString &response) {
                               handleListWindowsResponse(success, response);
@@ -116,7 +116,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         return;
     }
 
-    _applyingLayout = true;
+    // _state is already Initializing (which subsumes ApplyingLayout)
     const QStringList lines = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (const QString &line : lines) {
         // Each line: "@<id> <name> <layout>"
@@ -141,7 +141,6 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
             applyLayout(windowId, parsed.value());
         }
     }
-    _applyingLayout = false;
 
     // Query pane state for each window before capturing history
     for (auto it = _windowPanes.constBegin(); it != _windowPanes.constEnd(); ++it) {
@@ -153,7 +152,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         capturePaneHistory(it.key());
     }
 
-    _initializing = false;
+    _state = State::Idle;
     Q_EMIT initialWindowsOpened();
 }
 
@@ -414,16 +413,16 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
 
     auto parsed = TmuxLayoutParser::parse(layout);
     if (parsed.has_value()) {
-        _applyingLayout = true;
+        _state = State::ApplyingLayout;
         applyLayout(windowId, parsed.value());
-        _applyingLayout = false;
+        _state = State::Idle;
     }
 }
 
 void TmuxController::onWindowAdded(int windowId)
 {
     // During initialization, list-windows response handles all windows
-    if (_initializing) {
+    if (_state == State::Initializing) {
         return;
     }
     // Query the window's layout
@@ -444,9 +443,9 @@ void TmuxController::onWindowAdded(int windowId)
                               QString layout = line.mid(secondSpace + 1);
                               auto parsed = TmuxLayoutParser::parse(layout);
                               if (parsed.has_value()) {
-                                  _applyingLayout = true;
+                                  _state = State::ApplyingLayout;
                                   applyLayout(wId, parsed.value());
-                                  _applyingLayout = false;
+                                  _state = State::Idle;
                               }
                           });
 }
@@ -512,7 +511,7 @@ void TmuxController::onExit(const QString &reason)
 
 void TmuxController::onPaneViewSizeChanged()
 {
-    if (_applyingLayout) {
+    if (_state == State::ApplyingLayout || _state == State::Initializing) {
         return;
     }
     // Debounce: restart the timer on each size change
@@ -614,10 +613,10 @@ void TmuxController::connectSplitterSignals(ViewSplitter *splitter)
             disconnect(handle, &ViewSplitterHandle::dragStarted, this, nullptr);
             disconnect(handle, &ViewSplitterHandle::dragFinished, this, nullptr);
             connect(handle, &ViewSplitterHandle::dragStarted, this, [this]() {
-                _dragging = true;
+                _state = State::Dragging;
             });
             connect(handle, &ViewSplitterHandle::dragFinished, this, [this]() {
-                _dragging = false;
+                _state = State::Idle;
             });
         }
     }
@@ -773,7 +772,7 @@ bool TmuxController::updateSplitterSizes(ViewSplitter *splitter, const TmuxLayou
     // Structure matches — apply tmux's proportions so that tmux-initiated
     // resizes (e.g. window resize, other client resize) are reflected.
     // Skip during user-initiated splitter drags to avoid fighting the user.
-    if (!_dragging) {
+    if (_state != State::Dragging) {
         QList<int> sizes;
         for (const auto &child : node.children) {
             if (splitter->orientation() == Qt::Horizontal) {
