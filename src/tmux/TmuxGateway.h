@@ -62,9 +62,11 @@ private:
         QString command;
         CommandCallback callback;
         QString response;
+        int commandId = -1;
     };
     QQueue<PendingCommand> _pendingCommands;
     bool _inResponseBlock = false;
+    bool _serverOriginated = false;
     PendingCommand _currentCommand;
 };
 

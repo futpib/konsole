@@ -21,28 +21,61 @@ TmuxGateway::TmuxGateway(Session *gatewaySession, QObject *parent)
 void TmuxGateway::processLine(const QByteArray &line)
 {
     if (_inResponseBlock) {
+        // Match %end/%error by command ID: "%end <id> <number>" or "%error <id> <number>"
         if (line.startsWith("%end ") || line.startsWith("%error ")) {
             bool success = line.startsWith("%end ");
-            finishCurrentCommand(success);
+            int idEnd = line.indexOf(' ', success ? 5 : 7);
+            QByteArray idToken = (idEnd > 0) ? line.mid(success ? 5 : 7, idEnd - (success ? 5 : 7)) : line.mid(success ? 5 : 7);
+            bool ok = false;
+            int endId = idToken.toInt(&ok);
+            if (ok && endId == _currentCommand.commandId) {
+                finishCurrentCommand(success);
+            }
+            // If ID doesn't match, ignore (could be a nested server response)
             return;
         }
         // Accumulate response data
-        if (!_currentCommand.response.isEmpty()) {
-            _currentCommand.response += QLatin1Char('\n');
+        if (!_serverOriginated) {
+            if (!_currentCommand.response.isEmpty()) {
+                _currentCommand.response += QLatin1Char('\n');
+            }
+            _currentCommand.response += QString::fromUtf8(line);
         }
-        _currentCommand.response += QString::fromUtf8(line);
         return;
     }
 
     if (line.startsWith("%begin ")) {
-        if (_pendingCommands.isEmpty()) {
-            // Server-originated command; ignore
+        // Format: %begin <command_id> <command_number> [<flags>]
+        QList<QByteArray> parts = line.mid(7).split(' ');
+        int commandId = -1;
+        bool clientOriginated = true;
+        if (!parts.isEmpty()) {
+            bool ok = false;
+            commandId = parts[0].toInt(&ok);
+            if (!ok) {
+                commandId = -1;
+            }
+        }
+        if (parts.size() >= 3) {
+            bool ok = false;
+            int flags = parts[2].toInt(&ok);
+            if (ok) {
+                clientOriginated = (flags & 0x01) != 0;
+            }
+        }
+
+        if (!clientOriginated || _pendingCommands.isEmpty()) {
+            // Server-originated command; track ID but ignore response
             _inResponseBlock = true;
+            _serverOriginated = true;
             _currentCommand = PendingCommand();
+            _currentCommand.commandId = commandId;
             return;
         }
         _currentCommand = _pendingCommands.dequeue();
+        _currentCommand.commandId = commandId;
         _inResponseBlock = true;
+        _serverOriginated = false;
         return;
     }
 
