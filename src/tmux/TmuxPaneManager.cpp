@@ -30,6 +30,7 @@ Session *TmuxPaneManager::createPaneSession(int paneId)
 
     VirtualSession *session = SessionManager::instance()->createVirtualSession(
         ProfileManager::instance()->defaultProfile());
+    session->setPaneSyncPolicy(Session::PaneSyncPolicy::SyncWithSiblings);
 
     connect(session->emulation(), &Emulation::sendData, this, [this, paneId](const QByteArray &data) {
         _gateway->sendKeys(paneId, data);

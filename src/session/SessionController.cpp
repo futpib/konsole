@@ -1900,9 +1900,10 @@ void SessionController::clearHistoryAndReset()
     clearHistory();
 }
 
-static QList<TerminalDisplay *> tmuxSiblingDisplays(TerminalDisplay *display)
+static QList<TerminalDisplay *> siblingDisplaysForSync(TerminalDisplay *display)
 {
-    if (!display->sessionController() || !display->sessionController()->session() || !display->sessionController()->session()->isVirtual()) {
+    if (!display->sessionController() || !display->sessionController()->session()
+        || display->sessionController()->session()->paneSyncPolicy() != Session::PaneSyncPolicy::SyncWithSiblings) {
         return {};
     }
     auto *splitter = qobject_cast<ViewSplitter *>(display->parentWidget());
@@ -1914,7 +1915,7 @@ static QList<TerminalDisplay *> tmuxSiblingDisplays(TerminalDisplay *display)
 
 void SessionController::increaseFontSize()
 {
-    const auto siblings = tmuxSiblingDisplays(view());
+    const auto siblings = siblingDisplaysForSync(view());
     if (!siblings.isEmpty()) {
         for (auto *display : siblings) {
             display->terminalFont()->increaseFontSize();
@@ -1926,7 +1927,7 @@ void SessionController::increaseFontSize()
 
 void SessionController::decreaseFontSize()
 {
-    const auto siblings = tmuxSiblingDisplays(view());
+    const auto siblings = siblingDisplaysForSync(view());
     if (!siblings.isEmpty()) {
         for (auto *display : siblings) {
             display->terminalFont()->decreaseFontSize();
@@ -1938,7 +1939,7 @@ void SessionController::decreaseFontSize()
 
 void SessionController::resetFontSize()
 {
-    const auto siblings = tmuxSiblingDisplays(view());
+    const auto siblings = siblingDisplaysForSync(view());
     if (!siblings.isEmpty()) {
         for (auto *display : siblings) {
             display->terminalFont()->resetFontSize();

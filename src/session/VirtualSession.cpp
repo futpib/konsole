@@ -23,11 +23,6 @@ void VirtualSession::injectData(const char *data, int length)
     }
 }
 
-bool VirtualSession::isVirtual() const
-{
-    return true;
-}
-
 void VirtualSession::run()
 {
     // No-op: virtual sessions have no PTY to start

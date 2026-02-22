@@ -1766,7 +1766,8 @@ void TerminalDisplay::wheelEvent(QWheelEvent *ev)
         int steps = _scrollWheelState.consumeLegacySteps(ScrollState::DEFAULT_ANGLE_SCROLL_LINE);
 
         QList<TerminalDisplay *> targets;
-        if (_sessionController && _sessionController->session() && _sessionController->session()->isVirtual()) {
+        if (_sessionController && _sessionController->session()
+            && _sessionController->session()->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
             if (auto *splitter = qobject_cast<ViewSplitter *>(parentWidget())) {
                 targets = splitter->getToplevelSplitter()->findChildren<TerminalDisplay *>();
             }

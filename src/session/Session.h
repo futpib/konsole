@@ -88,8 +88,10 @@ public:
     explicit Session(QObject *parent = nullptr);
     ~Session() override;
 
-    /** Returns true if this is a virtual session (no PTY). */
-    virtual bool isVirtual() const;
+    enum class PaneSyncPolicy { Independent, SyncWithSiblings };
+
+    PaneSyncPolicy paneSyncPolicy() const;
+    void setPaneSyncPolicy(PaneSyncPolicy policy);
 
 protected:
     /** Tag type for constructing a Session without a PTY. */
@@ -1069,6 +1071,8 @@ private:
     QString _currentHostName = QString();
 
     bool _selectMode = false;
+
+    PaneSyncPolicy _paneSyncPolicy = PaneSyncPolicy::Independent;
 
     /**
      * secret cookie for activationToken, shall be only exposed to shell

@@ -188,9 +188,14 @@ Session::~Session()
     delete _zmodemProc;
 }
 
-bool Session::isVirtual() const
+Session::PaneSyncPolicy Session::paneSyncPolicy() const
 {
-    return false;
+    return _paneSyncPolicy;
+}
+
+void Session::setPaneSyncPolicy(PaneSyncPolicy policy)
+{
+    _paneSyncPolicy = policy;
 }
 
 void Session::openTeletype(int fd, bool runShell)
