@@ -635,6 +635,8 @@ int search_closest(const QList<int> &sorted_array, int x)
 
 void Konsole::ViewSplitterHandle::mousePressEvent(QMouseEvent *ev)
 {
+    Q_EMIT dragStarted();
+
     auto parentSplitter = qobject_cast<ViewSplitter *>(parentWidget());
     auto topLevelSplitter = parentSplitter->getToplevelSplitter();
 
@@ -683,6 +685,7 @@ void Konsole::ViewSplitterHandle::mouseReleaseEvent(QMouseEvent *ev)
         mouseDoubleClickEvent(ev);
     }
     QSplitterHandle::mouseReleaseEvent(ev);
+    Q_EMIT dragFinished();
 }
 
 void Konsole::ViewSplitterHandle::mouseMoveEvent(QMouseEvent *ev)

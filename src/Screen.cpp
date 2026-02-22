@@ -2119,9 +2119,9 @@ QList<int> Screen::getCharacterCounts() const
         } else {
             int screenLine = line - _history->getLines();
 
-            Q_ASSERT(screenLine <= _screenLinesSize);
-
-            screenLine = qMin(screenLine, _screenLinesSize);
+            if (screenLine > _screenLinesSize) {
+                return counts;
+            }
 
             auto *data = _screenLines[screenLine].data();
             int length = _screenLines.at(screenLine).count();
@@ -2220,9 +2220,9 @@ int Screen::copyLineToStream(int line,
 
         int screenLine = line - _history->getLines();
 
-        Q_ASSERT(screenLine <= _screenLinesSize);
-
-        screenLine = qMin(screenLine, _screenLinesSize);
+        if (screenLine > _screenLinesSize) {
+            return 0;
+        }
 
         auto *data = _screenLines[screenLine].data();
         int length = _screenLines.at(screenLine).count();

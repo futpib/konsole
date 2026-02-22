@@ -1209,6 +1209,10 @@ void SessionController::closeSession()
         return;
     }
 
+    if (session().isNull()) {
+        return;
+    }
+
     if (!confirmClose()) {
         return;
     }

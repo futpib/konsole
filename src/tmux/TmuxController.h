@@ -119,8 +119,11 @@ private:
     int _lastClientCols = 0;
     int _lastClientLines = 0;
 
-    // Suppress layout size application during user-initiated splitter drags
-    int _pendingPaneResizes = 0;
+    // Suppress layout application during user-initiated splitter drags
+    bool _dragging = false;
+
+    // Suppress sendClientSize during tmux-initiated layout changes
+    bool _applyingLayout = false;
 
     // Pause mode (tmux 3.2+)
     QSet<int> _pausedPanes;

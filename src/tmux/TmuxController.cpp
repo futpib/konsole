@@ -116,6 +116,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         return;
     }
 
+    _applyingLayout = true;
     const QStringList lines = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (const QString &line : lines) {
         // Each line: "@<id> <name> <layout>"
@@ -140,6 +141,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
             applyLayout(windowId, parsed.value());
         }
     }
+    _applyingLayout = false;
 
     // Query pane state for each window before capturing history
     for (auto it = _windowPanes.constBegin(); it != _windowPanes.constEnd(); ++it) {
@@ -409,9 +411,12 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
     Q_UNUSED(visibleLayout)
     Q_UNUSED(zoomed)
 
+
     auto parsed = TmuxLayoutParser::parse(layout);
     if (parsed.has_value()) {
+        _applyingLayout = true;
         applyLayout(windowId, parsed.value());
+        _applyingLayout = false;
     }
 }
 
@@ -439,7 +444,9 @@ void TmuxController::onWindowAdded(int windowId)
                               QString layout = line.mid(secondSpace + 1);
                               auto parsed = TmuxLayoutParser::parse(layout);
                               if (parsed.has_value()) {
+                                  _applyingLayout = true;
                                   applyLayout(wId, parsed.value());
+                                  _applyingLayout = false;
                               }
                           });
 }
@@ -505,6 +512,9 @@ void TmuxController::onExit(const QString &reason)
 
 void TmuxController::onPaneViewSizeChanged()
 {
+    if (_applyingLayout) {
+        return;
+    }
     // Debounce: restart the timer on each size change
     _resizeTimer.start();
 }
@@ -582,6 +592,7 @@ void TmuxController::sendClientSize()
     int totalCols = totalSize.width();
     int totalLines = totalSize.height();
 
+
     if (totalCols > 0 && totalLines > 0 && (totalCols != _lastClientCols || totalLines != _lastClientLines)) {
         _lastClientCols = totalCols;
         _lastClientLines = totalLines;
@@ -596,6 +607,21 @@ void TmuxController::connectSplitterSignals(ViewSplitter *splitter)
         onSplitterMoved(splitter);
     });
 
+    // Connect handle drag signals for each handle in this splitter
+    for (int i = 0; i < splitter->count(); ++i) {
+        auto *handle = qobject_cast<ViewSplitterHandle *>(splitter->handle(i));
+        if (handle) {
+            disconnect(handle, &ViewSplitterHandle::dragStarted, this, nullptr);
+            disconnect(handle, &ViewSplitterHandle::dragFinished, this, nullptr);
+            connect(handle, &ViewSplitterHandle::dragStarted, this, [this]() {
+                _dragging = true;
+            });
+            connect(handle, &ViewSplitterHandle::dragFinished, this, [this]() {
+                _dragging = false;
+            });
+        }
+    }
+
     // Recurse into child splitters
     for (int i = 0; i < splitter->count(); ++i) {
         auto *childSplitter = qobject_cast<ViewSplitter *>(splitter->widget(i));
@@ -607,6 +633,7 @@ void TmuxController::connectSplitterSignals(ViewSplitter *splitter)
 
 void TmuxController::onSplitterMoved(ViewSplitter *splitter)
 {
+
     // Send absolute resize for every pane in this splitter
     for (int i = 0; i < splitter->count(); ++i) {
         QWidget *widget = splitter->widget(i);
@@ -642,10 +669,7 @@ void TmuxController::onSplitterMoved(ViewSplitter *splitter)
             QString cmd = QStringLiteral("resize-pane -t %") + QString::number(paneId)
                 + QStringLiteral(" -x ") + QString::number(cols)
                 + QStringLiteral(" -y ") + QString::number(lines);
-            _pendingPaneResizes++;
-            _gateway->sendCommand(cmd, [this](bool, const QString &) {
-                _pendingPaneResizes--;
-            });
+            _gateway->sendCommand(cmd);
         }
     }
 }
@@ -748,9 +772,8 @@ bool TmuxController::updateSplitterSizes(ViewSplitter *splitter, const TmuxLayou
 
     // Structure matches — apply tmux's proportions so that tmux-initiated
     // resizes (e.g. window resize, other client resize) are reflected.
-    // Skip when we have pending resize-pane commands to avoid snap-back
-    // during user-initiated splitter drags.
-    if (_pendingPaneResizes == 0) {
+    // Skip during user-initiated splitter drags to avoid fighting the user.
+    if (!_dragging) {
         QList<int> sizes;
         for (const auto &child : node.children) {
             if (splitter->orientation() == Qt::Horizontal) {
@@ -760,6 +783,7 @@ bool TmuxController::updateSplitterSizes(ViewSplitter *splitter, const TmuxLayou
             }
         }
         splitter->setSizes(sizes);
+    } else {
     }
 
     return true;
@@ -778,6 +802,10 @@ void TmuxController::buildSplitterTree(ViewSplitter *splitter, const TmuxLayoutN
 
     Qt::Orientation orientation = (node.type == TmuxLayoutNodeType::HSplit) ? Qt::Horizontal : Qt::Vertical;
     splitter->setOrientation(orientation);
+
+    // Block updates while building the tree to prevent resize events on
+    // partially-constructed displays (Screen buffer may not be sized yet)
+    splitter->setUpdatesEnabled(false);
 
     for (const auto &child : node.children) {
         if (child.type == TmuxLayoutNodeType::Leaf) {
@@ -803,6 +831,8 @@ void TmuxController::buildSplitterTree(ViewSplitter *splitter, const TmuxLayoutN
         }
     }
     splitter->setSizes(sizes);
+
+    splitter->setUpdatesEnabled(true);
 }
 
 } // namespace Konsole

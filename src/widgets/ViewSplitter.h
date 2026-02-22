@@ -29,6 +29,10 @@ class ViewSplitterHandle : public QSplitterHandle
 public:
     ViewSplitterHandle(Qt::Orientation orientation, QSplitter *parent);
 
+Q_SIGNALS:
+    void dragStarted();
+    void dragFinished();
+
 protected:
     void mousePressEvent(QMouseEvent *ev) override;
     void mouseReleaseEvent(QMouseEvent *ev) override;
