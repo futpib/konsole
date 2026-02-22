@@ -17,7 +17,9 @@
 #include "../profile/ProfileManager.h"
 #include "../session/Session.h"
 #include "../session/SessionManager.h"
+#include "../terminalDisplay/TerminalDisplay.h"
 #include "../widgets/ViewContainer.h"
+#include "../widgets/ViewSplitter.h"
 
 using namespace Konsole;
 
@@ -165,6 +167,87 @@ void TmuxIntegrationTest::testTmuxControlModeAttach()
     delete mwGuard.data();
 
     // Clean up the tmux session
+    QProcess tmuxKill;
+    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
+    tmuxKill.waitForFinished(5000);
+}
+
+void TmuxIntegrationTest::testTmuxTwoPaneSplitAttach()
+{
+    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // Create a detached tmux session with two panes (horizontal split)
+    const QString sessionName = QStringLiteral("konsole-split-test-%1").arg(QCoreApplication::applicationPid());
+
+    QProcess tmuxNewSession;
+    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName, QStringLiteral("-x"), QStringLiteral("180"), QStringLiteral("-y"), QStringLiteral("40"), QStringLiteral("sleep 30")});
+    QVERIFY(tmuxNewSession.waitForFinished(5000));
+    QCOMPARE(tmuxNewSession.exitCode(), 0);
+
+    // Split the window horizontally to create a second pane
+    QProcess tmuxSplit;
+    tmuxSplit.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-h"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 30")});
+    QVERIFY(tmuxSplit.waitForFinished(5000));
+    QCOMPARE(tmuxSplit.exitCode(), 0);
+
+    // Attach Konsole to this two-pane session via control mode
+    auto *mw = new MainWindow();
+    QPointer<MainWindow> mwGuard(mw);
+    ViewManager *vm = mw->viewManager();
+
+    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
+    profile->setProperty(Profile::Command, tmuxPath);
+    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
+
+    Session *gatewaySession = vm->createSession(profile, QString());
+    auto *view = vm->createView(gatewaySession);
+    vm->activeContainer()->addView(view);
+    gatewaySession->run();
+
+    QPointer<TabbedViewContainer> container = vm->activeContainer();
+    QVERIFY(container);
+    QCOMPARE(container->count(), 1);
+
+    // Wait for tmux control mode to create virtual pane tab(s)
+    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+
+    // Find the tab that contains the split panes (not the gateway tab)
+    // The tmux pane tab should be a ViewSplitter with 2 TerminalDisplay children
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < container->count(); ++i) {
+        auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            qDebug() << "Tab" << i << "has" << terminals.size() << "TerminalDisplay children,"
+                     << splitter->count() << "direct children,"
+                     << "orientation:" << splitter->orientation();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children for the two-pane tmux layout");
+
+    // Verify the splitter orientation is horizontal (matching the -h split)
+    QCOMPARE(paneSplitter->orientation(), Qt::Horizontal);
+
+    // Clean up: close pane sessions, then gateway
+    const auto sessions = vm->sessions();
+    for (Session *s : sessions) {
+        if (s != gatewaySession) {
+            s->closeInNormalWay();
+        }
+    }
+    gatewaySession->closeInNormalWay();
+
+    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
+    delete mwGuard.data();
+
+    // Kill the tmux session
     QProcess tmuxKill;
     tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
     tmuxKill.waitForFinished(5000);

@@ -7,6 +7,7 @@
 #ifndef TMUXCONTROLLER_H
 #define TMUXCONTROLLER_H
 
+#include <QHash>
 #include <QList>
 #include <QMap>
 #include <QObject>
@@ -22,6 +23,24 @@ class TmuxLayoutNode;
 class ViewManager;
 class ViewSplitter;
 class TerminalDisplay;
+
+struct TmuxPaneState {
+    int paneId = -1;
+    bool alternateOn = false;
+    int cursorX = 0;
+    int cursorY = 0;
+    int scrollRegionUpper = 0;
+    int scrollRegionLower = -1; // -1 = bottom of screen
+    bool cursorVisible = true;
+    bool insertMode = false;
+    bool appCursorKeys = false;
+    bool appKeypad = false;
+    bool wrapMode = true;
+    bool mouseStandard = false;
+    bool mouseButton = false;
+    bool mouseAny = false;
+    bool mouseSGR = false;
+};
 
 class TmuxController : public QObject
 {
@@ -73,7 +92,13 @@ private:
     void handleListWindowsResponse(bool success, const QString &response);
     void capturePaneHistory(int paneId);
     void handleCapturePaneResponse(int paneId, bool success, const QString &response);
-    void onPaneViewSizeChanged(int lines, int columns);
+    bool updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node);
+    void queryPaneStates(int windowId);
+    void handlePaneStateResponse(int windowId, bool success, const QString &response);
+    void applyPaneState(int paneId);
+    void onPaneViewSizeChanged();
+    void connectSplitterSignals(ViewSplitter *splitter);
+    void onSplitterMoved(ViewSplitter *splitter);
 
     TmuxGateway *_gateway;
     Session *_gatewaySession;
@@ -88,6 +113,14 @@ private:
     bool _initializing = false;
 
     QTimer _resizeTimer;
+
+    QHash<int, TmuxPaneState> _paneStates;
+
+    int _lastClientCols = 0;
+    int _lastClientLines = 0;
+
+    // Suppress layout size application during user-initiated splitter drags
+    int _pendingPaneResizes = 0;
 
     // Pause mode (tmux 3.2+)
     QSet<int> _pausedPanes;

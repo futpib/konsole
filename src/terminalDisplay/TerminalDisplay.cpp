@@ -1739,6 +1739,12 @@ void TerminalDisplay::mouseDoubleClickEvent(QMouseEvent *ev)
 
 void TerminalDisplay::wheelEvent(QWheelEvent *ev)
 {
+    // Guard against events arriving after the session has been destroyed
+    // (e.g. during tmux pane teardown)
+    if (!_sessionController || _sessionController->session().isNull()) {
+        return;
+    }
+
     static QElapsedTimer enable_zoom_timer;
     static bool enable_zoom = true;
     // Only vertical scrolling is supported
@@ -1780,14 +1786,10 @@ void TerminalDisplay::wheelEvent(QWheelEvent *ev)
         // Don't call propagateSize and update, since nothing changed.
         _scrollBar->applyScrollBarPosition(false);
 
-        Q_ASSERT(_sessionController != nullptr);
-
         _sessionController->setSearchStartToWindowCurrentLine();
         _scrollWheelState.clearAll();
     } else if (!_readOnly) {
         _scrollWheelState.addWheelEvent(ev);
-
-        Q_ASSERT(!_sessionController->session().isNull());
 
         if (!usesMouseTracking() && !_sessionController->session()->isPrimaryScreen() && _scrollBar->alternateScrolling()) {
             // Send simulated up / down key presses to the terminal program

@@ -16,6 +16,7 @@
 #include "session/SessionManager.h"
 #include "session/VirtualSession.h"
 #include "terminalDisplay/TerminalDisplay.h"
+#include "terminalDisplay/TerminalFonts.h"
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
@@ -140,6 +141,11 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         }
     }
 
+    // Query pane state for each window before capturing history
+    for (auto it = _windowPanes.constBegin(); it != _windowPanes.constEnd(); ++it) {
+        queryPaneStates(it.key());
+    }
+
     // Capture pane history for all panes (for reconnection / tmux -CC attach)
     for (auto it = _paneToSession.constBegin(); it != _paneToSession.constEnd(); ++it) {
         capturePaneHistory(it.key());
@@ -182,6 +188,146 @@ void TmuxController::handleCapturePaneResponse(int paneId, bool success, const Q
         }
         session->injectData(lineData.constData(), lineData.size());
     }
+
+    // Apply terminal state (cursor position, modes, etc.) after content
+    applyPaneState(paneId);
+}
+
+void TmuxController::queryPaneStates(int windowId)
+{
+    static const QString format = QStringLiteral(
+        "#{pane_id}\t#{alternate_on}\t#{cursor_x}\t#{cursor_y}"
+        "\t#{scroll_region_upper}\t#{scroll_region_lower}"
+        "\t#{cursor_flag}\t#{insert_flag}\t#{keypad_cursor_flag}"
+        "\t#{keypad_flag}\t#{wrap_flag}\t#{mouse_standard_flag}"
+        "\t#{mouse_button_flag}\t#{mouse_any_flag}\t#{mouse_sgr_flag}");
+
+    _gateway->sendCommand(QStringLiteral("list-panes -t @%1 -F \"%2\"").arg(windowId).arg(format),
+                          [this, windowId](bool success, const QString &response) {
+                              handlePaneStateResponse(windowId, success, response);
+                          });
+}
+
+void TmuxController::handlePaneStateResponse(int windowId, bool success, const QString &response)
+{
+    Q_UNUSED(windowId)
+
+    if (!success || response.isEmpty()) {
+        return;
+    }
+
+    const QStringList lines = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    for (const QString &line : lines) {
+        const QStringList fields = line.split(QLatin1Char('\t'));
+        if (fields.size() < 15) {
+            continue;
+        }
+
+        // Parse pane ID from %<id>
+        QString paneIdStr = fields[0];
+        if (!paneIdStr.startsWith(QLatin1Char('%'))) {
+            continue;
+        }
+        int paneId = paneIdStr.mid(1).toInt();
+
+        TmuxPaneState state;
+        state.paneId = paneId;
+        state.alternateOn = fields[1] == QLatin1String("1");
+        state.cursorX = fields[2].toInt();
+        state.cursorY = fields[3].toInt();
+        state.scrollRegionUpper = fields[4].toInt();
+        state.scrollRegionLower = fields[5].toInt();
+        state.cursorVisible = fields[6] == QLatin1String("1");
+        state.insertMode = fields[7] == QLatin1String("1");
+        state.appCursorKeys = fields[8] == QLatin1String("1");
+        state.appKeypad = fields[9] == QLatin1String("1");
+        state.wrapMode = fields[10] == QLatin1String("1");
+        state.mouseStandard = fields[11] == QLatin1String("1");
+        state.mouseButton = fields[12] == QLatin1String("1");
+        state.mouseAny = fields[13] == QLatin1String("1");
+        state.mouseSGR = fields[14] == QLatin1String("1");
+
+        _paneStates[paneId] = state;
+    }
+}
+
+void TmuxController::applyPaneState(int paneId)
+{
+    if (!_paneStates.contains(paneId)) {
+        return;
+    }
+
+    auto *session = qobject_cast<VirtualSession *>(_paneToSession.value(paneId, nullptr));
+    if (!session) {
+        return;
+    }
+
+    const TmuxPaneState &state = _paneStates[paneId];
+    QByteArray seq;
+
+    // Switch to alternate screen if active
+    if (state.alternateOn) {
+        seq.append("\033[?1049h");
+    }
+
+    // Set scroll region (DECSTBM, 1-indexed)
+    if (state.scrollRegionUpper != 0 || state.scrollRegionLower != -1) {
+        int lower = state.scrollRegionLower;
+        if (lower < 0) {
+            // Use a large value; the terminal will clamp to screen height
+            lower = 9999;
+        }
+        seq.append(QStringLiteral("\033[%1;%2r").arg(state.scrollRegionUpper + 1).arg(lower + 1).toUtf8());
+    }
+
+    // Set cursor position (CUP, 1-indexed)
+    seq.append(QStringLiteral("\033[%1;%2H").arg(state.cursorY + 1).arg(state.cursorX + 1).toUtf8());
+
+    // Cursor visibility
+    if (!state.cursorVisible) {
+        seq.append("\033[?25l");
+    }
+
+    // Insert mode
+    if (state.insertMode) {
+        seq.append("\033[4h");
+    }
+
+    // Application cursor keys
+    if (state.appCursorKeys) {
+        seq.append("\033[?1h");
+    }
+
+    // Application keypad
+    if (state.appKeypad) {
+        seq.append("\033=");
+    }
+
+    // Wrap mode off (default is on)
+    if (!state.wrapMode) {
+        seq.append("\033[?7l");
+    }
+
+    // Mouse modes (only enable active ones)
+    if (state.mouseStandard) {
+        seq.append("\033[?1000h");
+    }
+    if (state.mouseButton) {
+        seq.append("\033[?1002h");
+    }
+    if (state.mouseAny) {
+        seq.append("\033[?1003h");
+    }
+    if (state.mouseSGR) {
+        seq.append("\033[?1006h");
+    }
+
+    if (!seq.isEmpty()) {
+        session->injectData(seq.constData(), seq.size());
+    }
+
+    // Clean up — state has been applied
+    _paneStates.remove(paneId);
 }
 
 Session *TmuxController::createPaneSession(int paneId)
@@ -197,7 +343,9 @@ Session *TmuxController::createPaneSession(int paneId)
         _gateway->sendKeys(paneId, data);
     });
 
-    connect(session->emulation(), &Emulation::imageSizeChanged, this, &TmuxController::onPaneViewSizeChanged);
+    connect(session->emulation(), &Emulation::imageSizeChanged, this, [this](int, int) {
+        onPaneViewSizeChanged();
+    });
 
     connect(session, &QObject::destroyed, this, [this, paneId]() {
         _paneToSession.remove(paneId);
@@ -334,6 +482,7 @@ void TmuxController::onSessionChanged(int sessionId, const QString &name)
 void TmuxController::cleanup()
 {
     _resizeTimer.stop();
+    _paneStates.clear();
     _pausedPanes.clear();
     _pauseBuffers.clear();
 
@@ -354,48 +503,150 @@ void TmuxController::onExit(const QString &reason)
     Q_EMIT detached();
 }
 
-void TmuxController::onPaneViewSizeChanged(int lines, int columns)
+void TmuxController::onPaneViewSizeChanged()
 {
-    Q_UNUSED(lines)
-    Q_UNUSED(columns)
     // Debounce: restart the timer on each size change
     _resizeTimer.start();
 }
 
 void TmuxController::sendClientSize()
 {
-    // Compute the maximum columns and lines across all pane views.
-    // tmux uses the smallest client size, so we report the size of our
-    // overall display area. With a single window visible at a time,
-    // use the active tab's top-level splitter size.
+    // tmux's refresh-client -C expects the total client area: the sum of
+    // pane character sizes plus dividers, matching the tmux layout model.
+    // We walk the splitter tree to compute this correctly, accounting for
+    // scrollbars, margins, and other per-terminal overhead.
     TabbedViewContainer *container = _viewManager->activeContainer();
     if (!container) {
         return;
     }
 
-    int maxCols = 0;
-    int maxLines = 0;
-
-    // Find the active tmux tab's splitter and use its first terminal's size
-    // as a proxy for the client size
-    auto *splitter = qobject_cast<ViewSplitter *>(container->currentWidget());
-    if (splitter) {
-        const auto terminals = splitter->findChildren<TerminalDisplay *>();
-        for (const auto *term : terminals) {
-            // Get the columns/lines from the terminal
-            int cols = term->columns();
-            int lines = term->lines();
-            if (cols > maxCols) {
-                maxCols = cols;
-            }
-            if (lines > maxLines) {
-                maxLines = lines;
+    // Find any tmux tab's splitter
+    ViewSplitter *splitter = nullptr;
+    auto *cur = qobject_cast<ViewSplitter *>(container->currentWidget());
+    if (cur && !cur->findChildren<TerminalDisplay *>().isEmpty()) {
+        splitter = cur;
+    }
+    if (!splitter) {
+        for (auto it = _windowToTabIndex.constBegin(); it != _windowToTabIndex.constEnd(); ++it) {
+            auto *s = qobject_cast<ViewSplitter *>(container->widget(it.value()));
+            if (s) {
+                splitter = s;
+                break;
             }
         }
     }
+    if (!splitter) {
+        return;
+    }
 
-    if (maxCols > 0 && maxLines > 0) {
-        _gateway->sendCommand(QStringLiteral("refresh-client -C %1,%2").arg(maxCols).arg(maxLines));
+    // Recursively compute character-cell size of the splitter tree
+    // like tmux would: sum along split axis, max along the other axis,
+    // +1 for each divider.
+    std::function<QSize(QWidget *)> computeSize = [&](QWidget *widget) -> QSize {
+        auto *td = qobject_cast<TerminalDisplay *>(widget);
+        if (td) {
+            return QSize(td->columns(), td->lines());
+        }
+        auto *sp = qobject_cast<ViewSplitter *>(widget);
+        if (!sp || sp->count() == 0) {
+            return QSize(0, 0);
+        }
+        if (sp->count() == 1) {
+            return computeSize(sp->widget(0));
+        }
+
+        bool horizontal = (sp->orientation() == Qt::Horizontal);
+        int sumAxis = 0;
+        int maxCross = 0;
+        for (int i = 0; i < sp->count(); ++i) {
+            QSize childSize = computeSize(sp->widget(i));
+            if (horizontal) {
+                sumAxis += childSize.width();
+                maxCross = qMax(maxCross, childSize.height());
+            } else {
+                sumAxis += childSize.height();
+                maxCross = qMax(maxCross, childSize.width());
+            }
+        }
+        // Add 1 character for each divider between children
+        sumAxis += sp->count() - 1;
+
+        if (horizontal) {
+            return QSize(sumAxis, maxCross);
+        } else {
+            return QSize(maxCross, sumAxis);
+        }
+    };
+
+    QSize totalSize = computeSize(splitter);
+    int totalCols = totalSize.width();
+    int totalLines = totalSize.height();
+
+    if (totalCols > 0 && totalLines > 0 && (totalCols != _lastClientCols || totalLines != _lastClientLines)) {
+        _lastClientCols = totalCols;
+        _lastClientLines = totalLines;
+        _gateway->sendCommand(QStringLiteral("refresh-client -C %1,%2").arg(totalCols).arg(totalLines));
+    }
+}
+
+void TmuxController::connectSplitterSignals(ViewSplitter *splitter)
+{
+    disconnect(splitter, &QSplitter::splitterMoved, this, nullptr);
+    connect(splitter, &QSplitter::splitterMoved, this, [this, splitter]() {
+        onSplitterMoved(splitter);
+    });
+
+    // Recurse into child splitters
+    for (int i = 0; i < splitter->count(); ++i) {
+        auto *childSplitter = qobject_cast<ViewSplitter *>(splitter->widget(i));
+        if (childSplitter) {
+            connectSplitterSignals(childSplitter);
+        }
+    }
+}
+
+void TmuxController::onSplitterMoved(ViewSplitter *splitter)
+{
+    // Send absolute resize for every pane in this splitter
+    for (int i = 0; i < splitter->count(); ++i) {
+        QWidget *widget = splitter->widget(i);
+
+        // Drill down to find a leaf TerminalDisplay
+        while (auto *sub = qobject_cast<ViewSplitter *>(widget)) {
+            if (sub->count() == 0) {
+                break;
+            }
+            widget = sub->widget(0);
+        }
+
+        auto *display = qobject_cast<TerminalDisplay *>(widget);
+        if (!display) {
+            continue;
+        }
+
+        // Find the pane ID for this display
+        int paneId = -1;
+        for (auto it = _paneToSession.constBegin(); it != _paneToSession.constEnd(); ++it) {
+            if (it.value()->views().contains(display)) {
+                paneId = it.key();
+                break;
+            }
+        }
+        if (paneId < 0) {
+            continue;
+        }
+
+        int cols = display->columns();
+        int lines = display->lines();
+        if (cols > 0 && lines > 0) {
+            QString cmd = QStringLiteral("resize-pane -t %") + QString::number(paneId)
+                + QStringLiteral(" -x ") + QString::number(cols)
+                + QStringLiteral(" -y ") + QString::number(lines);
+            _pendingPaneResizes++;
+            _gateway->sendCommand(cmd, [this](bool, const QString &) {
+                _pendingPaneResizes--;
+            });
+        }
     }
 }
 
@@ -428,14 +679,14 @@ void TmuxController::applyLayout(int windowId, const TmuxLayoutNode &layout)
     }
 
     if (_windowToTabIndex.contains(windowId)) {
-        // Update existing tab
+        // Update existing tab — try to just update sizes if structure matches
         int tabIndex = _windowToTabIndex[windowId];
         auto *splitter = qobject_cast<ViewSplitter *>(container->widget(tabIndex));
         if (splitter) {
-            // Clear existing children and rebuild
-            // For now, just rebuild if the layout has multiple panes
-            if (layout.type != TmuxLayoutNodeType::Leaf) {
+            if (!updateSplitterSizes(splitter, layout)) {
+                // Structure changed — full rebuild needed
                 buildSplitterTree(splitter, layout);
+                connectSplitterSignals(splitter);
             }
         }
     } else {
@@ -449,12 +700,69 @@ void TmuxController::applyLayout(int windowId, const TmuxLayoutNode &layout)
             splitter->addTerminalDisplay(display, Qt::Horizontal);
         } else {
             buildSplitterTree(splitter, layout);
+            connectSplitterSignals(splitter);
         }
 
         container->addSplitter(splitter);
         int tabIndex = container->indexOf(splitter);
         _windowToTabIndex[windowId] = tabIndex;
     }
+}
+
+bool TmuxController::updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node)
+{
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        // A leaf matches if the splitter has exactly one TerminalDisplay child
+        // (which is how addView / buildSplitterTree creates single-pane tabs)
+        return splitter->count() == 1 && qobject_cast<TerminalDisplay *>(splitter->widget(0));
+    }
+
+    Qt::Orientation expected = (node.type == TmuxLayoutNodeType::HSplit) ? Qt::Horizontal : Qt::Vertical;
+    if (splitter->orientation() != expected) {
+        return false;
+    }
+
+    if (splitter->count() != node.children.size()) {
+        return false;
+    }
+
+    // Check each child matches the expected type
+    for (int i = 0; i < node.children.size(); ++i) {
+        const auto &child = node.children[i];
+        QWidget *widget = splitter->widget(i);
+
+        if (child.type == TmuxLayoutNodeType::Leaf) {
+            if (!qobject_cast<TerminalDisplay *>(widget)) {
+                return false;
+            }
+        } else {
+            auto *childSplitter = qobject_cast<ViewSplitter *>(widget);
+            if (!childSplitter) {
+                return false;
+            }
+            if (!updateSplitterSizes(childSplitter, child)) {
+                return false;
+            }
+        }
+    }
+
+    // Structure matches — apply tmux's proportions so that tmux-initiated
+    // resizes (e.g. window resize, other client resize) are reflected.
+    // Skip when we have pending resize-pane commands to avoid snap-back
+    // during user-initiated splitter drags.
+    if (_pendingPaneResizes == 0) {
+        QList<int> sizes;
+        for (const auto &child : node.children) {
+            if (splitter->orientation() == Qt::Horizontal) {
+                sizes.append(child.width);
+            } else {
+                sizes.append(child.height);
+            }
+        }
+        splitter->setSizes(sizes);
+    }
+
+    return true;
 }
 
 void TmuxController::buildSplitterTree(ViewSplitter *splitter, const TmuxLayoutNode &node)

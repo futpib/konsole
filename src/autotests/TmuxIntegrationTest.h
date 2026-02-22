@@ -19,6 +19,7 @@ private Q_SLOTS:
     void testTmuxControlModeExitCleanup();
     void testClosePaneTabThenGatewayTab();
     void testTmuxControlModeAttach();
+    void testTmuxTwoPaneSplitAttach();
 };
 
 }
