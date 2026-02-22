@@ -12,6 +12,7 @@
 #include "src/SearchHistoryTask.h"
 #include "terminalDisplay/TerminalColor.h"
 #include "terminalDisplay/TerminalFonts.h"
+#include "widgets/ViewSplitter.h"
 
 // Qt
 #include <QAction>
@@ -1895,19 +1896,52 @@ void SessionController::clearHistoryAndReset()
     clearHistory();
 }
 
+static QList<TerminalDisplay *> tmuxSiblingDisplays(TerminalDisplay *display)
+{
+    if (!display->sessionController() || !display->sessionController()->session() || !display->sessionController()->session()->isVirtual()) {
+        return {};
+    }
+    auto *splitter = qobject_cast<ViewSplitter *>(display->parentWidget());
+    if (!splitter) {
+        return {};
+    }
+    return splitter->getToplevelSplitter()->findChildren<TerminalDisplay *>();
+}
+
 void SessionController::increaseFontSize()
 {
-    view()->terminalFont()->increaseFontSize();
+    const auto siblings = tmuxSiblingDisplays(view());
+    if (!siblings.isEmpty()) {
+        for (auto *display : siblings) {
+            display->terminalFont()->increaseFontSize();
+        }
+    } else {
+        view()->terminalFont()->increaseFontSize();
+    }
 }
 
 void SessionController::decreaseFontSize()
 {
-    view()->terminalFont()->decreaseFontSize();
+    const auto siblings = tmuxSiblingDisplays(view());
+    if (!siblings.isEmpty()) {
+        for (auto *display : siblings) {
+            display->terminalFont()->decreaseFontSize();
+        }
+    } else {
+        view()->terminalFont()->decreaseFontSize();
+    }
 }
 
 void SessionController::resetFontSize()
 {
-    view()->terminalFont()->resetFontSize();
+    const auto siblings = tmuxSiblingDisplays(view());
+    if (!siblings.isEmpty()) {
+        for (auto *display : siblings) {
+            display->terminalFont()->resetFontSize();
+        }
+    } else {
+        view()->terminalFont()->resetFontSize();
+    }
 }
 
 void SessionController::notifyPrompt()

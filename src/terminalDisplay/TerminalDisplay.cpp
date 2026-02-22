@@ -62,6 +62,7 @@
 #include "PrintOptions.h"
 #include "Screen.h"
 #include "ViewManager.h" // for colorSchemeForProfile. // TODO: Rewrite this.
+#include "widgets/ViewSplitter.h"
 #include "WindowSystemInfo.h"
 #include "profile/Profile.h"
 #include "session/Session.h"
@@ -1763,13 +1764,26 @@ void TerminalDisplay::wheelEvent(QWheelEvent *ev)
         _scrollWheelState.addWheelEvent(ev);
 
         int steps = _scrollWheelState.consumeLegacySteps(ScrollState::DEFAULT_ANGLE_SCROLL_LINE);
+
+        QList<TerminalDisplay *> targets;
+        if (_sessionController && _sessionController->session() && _sessionController->session()->isVirtual()) {
+            if (auto *splitter = qobject_cast<ViewSplitter *>(parentWidget())) {
+                targets = splitter->getToplevelSplitter()->findChildren<TerminalDisplay *>();
+            }
+        }
+        if (targets.isEmpty()) {
+            targets.append(this);
+        }
+
         for (; steps > 0; --steps) {
-            // wheel-up for increasing font size
-            _terminalFont->increaseFontSize();
+            for (auto *display : std::as_const(targets)) {
+                display->terminalFont()->increaseFontSize();
+            }
         }
         for (; steps < 0; ++steps) {
-            // wheel-down for decreasing font size
-            _terminalFont->decreaseFontSize();
+            for (auto *display : std::as_const(targets)) {
+                display->terminalFont()->decreaseFontSize();
+            }
         }
         return;
     } else if (!usesMouseTracking() && (_scrollBar->maximum() > 0)) {
