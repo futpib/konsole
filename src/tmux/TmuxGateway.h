@@ -14,6 +14,8 @@
 #include <functional>
 #include <optional>
 
+#include "TmuxNotification.h"
+
 namespace Konsole
 {
 
@@ -31,6 +33,8 @@ public:
     void sendCommand(const QString &command, CommandCallback callback = nullptr);
     void sendKeys(int paneId, const QByteArray &data);
     void detach();
+
+    static std::optional<TmuxNotification> parseNotification(const QByteArray &line);
 
 Q_SIGNALS:
     void outputReceived(int paneId, const QByteArray &data);

@@ -84,28 +84,25 @@ void TmuxGateway::processLine(const QByteArray &line)
     }
 }
 
-void TmuxGateway::handleNotification(const QByteArray &line)
+std::optional<TmuxNotification> TmuxGateway::parseNotification(const QByteArray &line)
 {
     if (line.startsWith("%output ")) {
-        // Format: %output %<pane-id> <octal-escaped-data>
-        int firstSpace = line.indexOf(' ', 8); // after "%output "
+        int firstSpace = line.indexOf(' ', 8);
         if (firstSpace < 0) {
-            return;
+            return std::nullopt;
         }
         QByteArray paneToken = line.mid(8, firstSpace - 8);
         int paneId = parsePaneId(paneToken);
         if (paneId < 0) {
-            return;
+            return std::nullopt;
         }
         QByteArray encoded = line.mid(firstSpace + 1);
-        QByteArray decoded = decodeOctalEscapes(encoded);
-        Q_EMIT outputReceived(paneId, decoded);
+        return TmuxOutputNotification{paneId, decodeOctalEscapes(encoded)};
 
     } else if (line.startsWith("%layout-change ")) {
-        // Format: %layout-change @<window> <layout> [<visible-layout> <flags>]
         QList<QByteArray> parts = line.mid(15).split(' ');
         if (parts.size() < 2) {
-            return;
+            return std::nullopt;
         }
         int windowId = parseWindowId(parts[0]);
         QString layout = QString::fromUtf8(parts[1]);
@@ -115,85 +112,122 @@ void TmuxGateway::handleNotification(const QByteArray &line)
             visibleLayout = QString::fromUtf8(parts[2]);
         }
         if (parts.size() >= 4) {
-            // flags field: contains "*" for zoomed
             zoomed = parts[3].contains('*');
         }
-        Q_EMIT layoutChanged(windowId, layout, visibleLayout, zoomed);
+        return TmuxLayoutChangedNotification{windowId, layout, visibleLayout, zoomed};
 
     } else if (line.startsWith("%window-add ")) {
-        // Format: %window-add @<id>
         int windowId = parseWindowId(line.mid(12));
-        Q_EMIT windowAdded(windowId);
+        return TmuxWindowAddedNotification{windowId};
 
     } else if (line.startsWith("%window-close ") || line.startsWith("%unlinked-window-close ")) {
         QByteArray rest = line.startsWith("%window-close ") ? line.mid(14) : line.mid(23);
         int windowId = parseWindowId(rest.split(' ').first());
-        Q_EMIT windowClosed(windowId);
+        return TmuxWindowClosedNotification{windowId};
 
     } else if (line.startsWith("%window-renamed ")) {
-        // Format: %window-renamed @<id> <name>
         QByteArray rest = line.mid(16);
         int spaceIdx = rest.indexOf(' ');
         if (spaceIdx < 0) {
-            return;
+            return std::nullopt;
         }
         int windowId = parseWindowId(rest.left(spaceIdx));
         QString name = QString::fromUtf8(rest.mid(spaceIdx + 1));
-        Q_EMIT windowRenamed(windowId, name);
+        return TmuxWindowRenamedNotification{windowId, name};
 
     } else if (line.startsWith("%window-pane-changed ")) {
-        // Format: %window-pane-changed @<window> %<pane>
         QList<QByteArray> parts = line.mid(21).split(' ');
         if (parts.size() < 2) {
-            return;
+            return std::nullopt;
         }
         int windowId = parseWindowId(parts[0]);
         int paneId = parsePaneId(parts[1]);
-        Q_EMIT windowPaneChanged(windowId, paneId);
+        return TmuxWindowPaneChangedNotification{windowId, paneId};
 
     } else if (line.startsWith("%session-changed ")) {
-        // Format: %session-changed $<id> <name>
         QByteArray rest = line.mid(17);
         int spaceIdx = rest.indexOf(' ');
         if (spaceIdx < 0) {
-            return;
+            return std::nullopt;
         }
         int sessionId = parseSessionId(rest.left(spaceIdx));
         QString name = QString::fromUtf8(rest.mid(spaceIdx + 1));
-        Q_EMIT sessionChanged(sessionId, name);
+        return TmuxSessionChangedNotification{sessionId, name};
 
     } else if (line.startsWith("%session-renamed ")) {
         QString name = QString::fromUtf8(line.mid(17));
-        Q_EMIT sessionRenamed(name);
+        return TmuxSessionRenamedNotification{name};
 
     } else if (line.startsWith("%sessions-changed")) {
-        Q_EMIT sessionsChanged();
+        return TmuxSessionsChangedNotification{};
 
     } else if (line.startsWith("%session-window-changed ")) {
-        // Format: %session-window-changed $<session> @<window>
         QList<QByteArray> parts = line.mid(24).split(' ');
         if (parts.size() < 2) {
-            return;
+            return std::nullopt;
         }
         int sessionId = parseSessionId(parts[0]);
         int windowId = parseWindowId(parts[1]);
-        Q_EMIT sessionWindowChanged(sessionId, windowId);
+        return TmuxSessionWindowChangedNotification{sessionId, windowId};
 
     } else if (line.startsWith("%pause ")) {
         int paneId = parsePaneId(line.mid(7));
-        Q_EMIT panePaused(paneId);
+        return TmuxPanePausedNotification{paneId};
 
     } else if (line.startsWith("%continue ")) {
         int paneId = parsePaneId(line.mid(10));
-        Q_EMIT paneContinued(paneId);
+        return TmuxPaneContinuedNotification{paneId};
 
     } else if (line.startsWith("%exit")) {
         QString reason;
         if (line.length() > 6) {
             reason = QString::fromUtf8(line.mid(6));
         }
-        Q_EMIT exitReceived(reason);
+        return TmuxExitNotification{reason};
     }
+
+    return std::nullopt;
+}
+
+void TmuxGateway::handleNotification(const QByteArray &line)
+{
+    auto notification = parseNotification(line);
+    if (!notification.has_value()) {
+        return;
+    }
+
+    std::visit(
+        [this](auto &&n) {
+            using T = std::decay_t<decltype(n)>;
+            if constexpr (std::is_same_v<T, TmuxOutputNotification>) {
+                Q_EMIT outputReceived(n.paneId, n.data);
+            } else if constexpr (std::is_same_v<T, TmuxLayoutChangedNotification>) {
+                Q_EMIT layoutChanged(n.windowId, n.layout, n.visibleLayout, n.zoomed);
+            } else if constexpr (std::is_same_v<T, TmuxWindowAddedNotification>) {
+                Q_EMIT windowAdded(n.windowId);
+            } else if constexpr (std::is_same_v<T, TmuxWindowClosedNotification>) {
+                Q_EMIT windowClosed(n.windowId);
+            } else if constexpr (std::is_same_v<T, TmuxWindowRenamedNotification>) {
+                Q_EMIT windowRenamed(n.windowId, n.name);
+            } else if constexpr (std::is_same_v<T, TmuxWindowPaneChangedNotification>) {
+                Q_EMIT windowPaneChanged(n.windowId, n.paneId);
+            } else if constexpr (std::is_same_v<T, TmuxSessionChangedNotification>) {
+                Q_EMIT sessionChanged(n.sessionId, n.name);
+            } else if constexpr (std::is_same_v<T, TmuxSessionRenamedNotification>) {
+                Q_EMIT sessionRenamed(n.name);
+            } else if constexpr (std::is_same_v<T, TmuxSessionsChangedNotification>) {
+                Q_EMIT sessionsChanged();
+            } else if constexpr (std::is_same_v<T, TmuxSessionWindowChangedNotification>) {
+                Q_EMIT sessionWindowChanged(n.sessionId, n.windowId);
+            } else if constexpr (std::is_same_v<T, TmuxPanePausedNotification>) {
+                Q_EMIT panePaused(n.paneId);
+            } else if constexpr (std::is_same_v<T, TmuxPaneContinuedNotification>) {
+                Q_EMIT paneContinued(n.paneId);
+            } else if constexpr (std::is_same_v<T, TmuxExitNotification>) {
+                Q_EMIT exitReceived(n.reason);
+            }
+        },
+        notification.value());
 }
 
 void TmuxGateway::finishCurrentCommand(bool success)
