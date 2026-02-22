@@ -26,10 +26,10 @@ TmuxSessionBridge::TmuxSessionBridge(Session *gatewaySession, ViewManager *viewM
     auto *vtEmulation = qobject_cast<Vt102Emulation *>(gatewaySession->emulation());
     if (vtEmulation) {
         connect(vtEmulation, &Vt102Emulation::tmuxControlModeLineReceived, _gateway, &TmuxGateway::processLine);
-        connect(vtEmulation, &Vt102Emulation::tmuxControlModeEnded, this, &TmuxSessionBridge::onTmuxControlModeEnded);
+        connect(vtEmulation, &Vt102Emulation::tmuxControlModeEnded, this, &TmuxSessionBridge::teardown);
     }
 
-    connect(gatewaySession, &Session::finished, this, &TmuxSessionBridge::onGatewaySessionFinished);
+    connect(gatewaySession, &Session::finished, this, &TmuxSessionBridge::teardown);
 
     TmuxControllerRegistry::instance()->registerController(_controller);
 
@@ -41,13 +41,7 @@ TmuxSessionBridge::~TmuxSessionBridge()
     TmuxControllerRegistry::instance()->unregisterController(_controller);
 }
 
-void TmuxSessionBridge::onTmuxControlModeEnded()
-{
-    _controller->cleanup();
-    this->deleteLater();
-}
-
-void TmuxSessionBridge::onGatewaySessionFinished()
+void TmuxSessionBridge::teardown()
 {
     _controller->cleanup();
     this->deleteLater();

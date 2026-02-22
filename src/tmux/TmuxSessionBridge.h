@@ -33,8 +33,7 @@ public:
     ~TmuxSessionBridge() override;
 
 private Q_SLOTS:
-    void onTmuxControlModeEnded();
-    void onGatewaySessionFinished();
+    void teardown();
 
 private:
     Session *_gatewaySession;       // non-owning
