@@ -91,6 +91,18 @@ public:
     /** Returns true if this is a virtual session (no PTY). */
     virtual bool isVirtual() const;
 
+protected:
+    /** Tag type for constructing a Session without a PTY. */
+    struct NoPtyTag {};
+
+    /**
+     * Constructs a session without creating a PTY.
+     * Used by VirtualSession to avoid creating then immediately destroying a PTY.
+     */
+    explicit Session(NoPtyTag, QObject *parent = nullptr);
+
+public:
+
     /* Returns the process info so the plugins can peek at it's name */
     ProcessInfo *getProcessInfo();
 
@@ -965,6 +977,7 @@ protected:
 
 private:
     bool isCalledViaDbusAndForbidden() const;
+    void initCommon();
 
     Q_DISABLE_COPY(Session)
 

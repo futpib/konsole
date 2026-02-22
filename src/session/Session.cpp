@@ -55,6 +55,7 @@
 #endif
 
 #include "KonsoleSettings.h"
+#include "NullProcessInfo.h"
 #include "Pty.h"
 #include "SSHProcessInfo.h"
 #include "SessionController.h"
@@ -102,9 +103,7 @@ static QString computeRandomCookie()
     return QString::fromUtf8(QByteArray(reinterpret_cast<const char *>(array), sizeof(array)).toBase64());
 }
 
-Session::Session(QObject *parent)
-    : QObject(parent)
-    , m_activationCookie(computeRandomCookie())
+void Session::initCommon()
 {
     _uniqueIdentifier = QUuid::createUuid();
 
@@ -142,6 +141,22 @@ Session::Session(QObject *parent)
     connect(_emulation, &Konsole::Emulation::imageResizeRequest, this, &Konsole::Session::resizeRequest);
     connect(_emulation, &Konsole::Emulation::sessionAttributeRequest, this, &Konsole::Session::sessionAttributeRequest);
 
+    // setup timer for monitoring session activity & silence
+    _silenceTimer = new QTimer(this);
+    _silenceTimer->setSingleShot(true);
+    connect(_silenceTimer, &QTimer::timeout, this, &Konsole::Session::silenceTimerDone);
+
+    _activityTimer = new QTimer(this);
+    _activityTimer->setSingleShot(true);
+    connect(_activityTimer, &QTimer::timeout, this, &Konsole::Session::activityTimerDone);
+}
+
+Session::Session(QObject *parent)
+    : QObject(parent)
+    , m_activationCookie(computeRandomCookie())
+{
+    initCommon();
+
     // tmux control mode detection — relay to ViewManager via protocolModeDetected
     if (auto *vtEmulation = qobject_cast<Vt102Emulation *>(_emulation)) {
         connect(vtEmulation, &Vt102Emulation::tmuxControlModeStarted, this, [this]() {
@@ -151,15 +166,16 @@ Session::Session(QObject *parent)
 
     // create new teletype for I/O with shell process
     openTeletype(-1, true);
+}
 
-    // setup timer for monitoring session activity & silence
-    _silenceTimer = new QTimer(this);
-    _silenceTimer->setSingleShot(true);
-    connect(_silenceTimer, &QTimer::timeout, this, &Konsole::Session::silenceTimerDone);
+Session::Session(NoPtyTag, QObject *parent)
+    : QObject(parent)
+    , m_activationCookie(computeRandomCookie())
+{
+    initCommon();
 
-    _activityTimer = new QTimer(this);
-    _activityTimer->setSingleShot(true);
-    connect(_activityTimer, &QTimer::timeout, this, &Konsole::Session::activityTimerDone);
+    // No PTY — set up a null process info
+    _sessionProcessInfo = new NullProcessInfo(0);
 }
 
 Session::~Session()
