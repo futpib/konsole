@@ -479,6 +479,7 @@ void Vt102Emulation::switchState(const ParserStates newState, const uint cc)
 {
     switch (_state) {
     case DcsPassthrough:
+    case DcsEscape:
         unhook();
         break;
     case OscString:
@@ -666,7 +667,15 @@ void Vt102Emulation::put(const uint cc)
             Q_EMIT tmuxControlModeLineReceived(m_tmuxLineBuffer);
             m_tmuxLineBuffer.clear();
         } else if (cc != '\r') {
-            m_tmuxLineBuffer.append(static_cast<char>(cc));
+            if (cc < 0x80) {
+                m_tmuxLineBuffer.append(static_cast<char>(cc));
+            } else {
+                // Re-encode Unicode codepoint as UTF-8 since receiveData()
+                // decoded the raw byte stream from the PTY into Unicode
+                // before passing it to the VT102 state machine.
+                const char32_t ch = static_cast<char32_t>(cc);
+                m_tmuxLineBuffer.append(QString::fromUcs4(&ch, 1).toUtf8());
+            }
         }
         return;
     }
@@ -679,12 +688,12 @@ void Vt102Emulation::put(const uint cc)
 
 void Vt102Emulation::hook(const uint cc)
 {
-    qWarning() << "Vt102Emulation::hook() called with cc=" << cc << "nIntermediate=" << _nIntermediate << "params.count=" << params.count << "params.value[0]=" << params.value[0];
     if (cc == 'q' && _nIntermediate == 0) {
         m_SixelPictureDefinition = true;
         resetTokenizer();
     } else if (cc == 'p' && _nIntermediate == 0 && params.value[0] == 1000) {
         m_tmuxControlMode = true;
+        m_tmuxRawEscSeen = false;
         m_tmuxLineBuffer.clear();
         Q_EMIT tmuxControlModeStarted();
     }
@@ -694,6 +703,7 @@ void Vt102Emulation::unhook()
 {
     if (m_tmuxControlMode) {
         m_tmuxControlMode = false;
+        m_tmuxRawEscSeen = false;
         m_tmuxLineBuffer.clear();
         Q_EMIT tmuxControlModeEnded();
         return;
@@ -757,6 +767,60 @@ void Vt102Emulation::apc_end()
     }
 }
 
+bool Vt102Emulation::receiveRawData(const char *text, int length)
+{
+    if (!m_tmuxControlMode) {
+        return false;
+    }
+
+    // In tmux control mode, process raw bytes directly into the line buffer.
+    // This avoids the lossy UTF-8 → Unicode → UTF-8 round-trip through
+    // QStringDecoder, which produces U+FFFD at chunk boundaries when a
+    // multi-byte UTF-8 sequence is split across PTY reads.
+    for (int i = 0; i < length; ++i) {
+        unsigned char c = static_cast<unsigned char>(text[i]);
+
+        if (c == 0x1B && m_tmuxRawEscSeen) {
+            // Two ESCs in a row: first was data, buffer it
+            m_tmuxLineBuffer.append('\x1B');
+            // Keep m_tmuxRawEscSeen true for this new ESC
+            continue;
+        }
+
+        if (m_tmuxRawEscSeen) {
+            m_tmuxRawEscSeen = false;
+            if (c == 0x5C) {
+                // ESC \ = ST — exit tmux control mode
+                unhook();
+                _state = Ground;
+                // Process remaining bytes normally (they're post-tmux)
+                if (i + 1 < length) {
+                    Emulation::receiveData(text + i + 1, length - i - 1);
+                }
+                return true;
+            }
+            // ESC followed by something else — both are data
+            m_tmuxLineBuffer.append('\x1B');
+            m_tmuxLineBuffer.append(static_cast<char>(c));
+            continue;
+        }
+
+        if (c == 0x1B) {
+            m_tmuxRawEscSeen = true;
+            continue;
+        }
+
+        if (c == '\n') {
+            Q_EMIT tmuxControlModeLineReceived(m_tmuxLineBuffer);
+            m_tmuxLineBuffer.clear();
+        } else if (c != '\r') {
+            m_tmuxLineBuffer.append(static_cast<char>(c));
+        }
+    }
+
+    return true;
+}
+
 void Vt102Emulation::receiveChars(const QVector<uint> &chars)
 {
     for (uint cc : chars) {
@@ -770,24 +834,50 @@ void Vt102Emulation::receiveChars(const QVector<uint> &chars)
             // First, process characters that act the same on all states, i.e.
             // coming from "anywhere" in the VT100.net diagram.
             if (cc == 0x1B) {
+                if (_state == DcsPassthrough) {
+                    // In DCS passthrough (e.g. tmux control mode), ESC might be
+                    // part of the data stream or the start of ST (ESC \).
+                    // Transition to DcsEscape to check for ST without leaving
+                    // DCS passthrough prematurely.
+                    _state = DcsEscape;
+                    continue;
+                }
                 switchState(Escape, cc);
                 clear();
             } else if (cc == 0x9B) {
-                switchState(CsiEntry, cc);
-                clear();
+                if (_state == DcsPassthrough || _state == DcsEscape) {
+                    put(cc);
+                } else {
+                    switchState(CsiEntry, cc);
+                    clear();
+                }
             } else if (cc == 0x90) {
-                switchState(DcsEntry, cc);
-                clear();
+                if (_state == DcsPassthrough || _state == DcsEscape) {
+                    put(cc);
+                } else {
+                    switchState(DcsEntry, cc);
+                    clear();
+                }
             } else if (cc == 0x9D) {
-                osc_start();
-                switchState(OscString, cc);
+                if (_state == DcsPassthrough || _state == DcsEscape) {
+                    put(cc);
+                } else {
+                    osc_start();
+                    switchState(OscString, cc);
+                }
             } else if (cc == 0x98 || cc == 0x9E || cc == 0x9F) {
-                apc_start(cc);
-                switchState(SosPmApcString, cc);
+                if (_state == DcsPassthrough || _state == DcsEscape) {
+                    put(cc);
+                } else {
+                    apc_start(cc);
+                    switchState(SosPmApcString, cc);
+                }
             } else if (cc == 0x18 || cc == 0x1A || (cc >= 0x80 && cc <= 0x9A)) { // 0x90, 0x98 taken care of just above.
                 // konsole has always ignored CAN and SUB in OSC, extend the behavior a bit
                 // this differs from VT240, where 7-bit ST, 8-bit ST, ESC + chr, ***CAN, SUB, C1*** terminate and show SIXEL
-                if (_state != OscString && _state != SosPmApcString && _state != DcsPassthrough) {
+                if (_state == DcsPassthrough || _state == DcsEscape) {
+                    put(cc);
+                } else if (_state != OscString && _state != SosPmApcString) {
                     processToken(token_ctl(cc + '@'), 0, 0);
                     switchState(Ground, cc);
                 }
@@ -954,11 +1044,31 @@ void Vt102Emulation::receiveChars(const QVector<uint> &chars)
                     }
                     break;
                 case DcsPassthrough:
-                    if (cc <= 0x7E || cc >= 0xA0) { // 0x18, 0x1A, 0x1B already taken care of
-                        put(cc);
-                        // 0x9C already taken care of.
-                    } else if (cc == 0x7F) {
+                    if (cc == 0x7F) {
                         // ignore
+                    } else {
+                        // Pass all other bytes through, including 0x80-0x9F range
+                        // which contains UTF-8 continuation bytes.
+                        // C1 codes that should terminate DCS (0x9C) and other
+                        // "anywhere" transitions are already handled above.
+                        put(cc);
+                    }
+                    break;
+                case DcsEscape:
+                    // We saw ESC while in DcsPassthrough. Check if this is ST (ESC \).
+                    if (cc == 0x5C) {
+                        // ESC \ = ST → terminate DCS passthrough
+                        unhook();
+                        _state = Ground;
+                    } else if (cc == 0x1B) {
+                        // Another ESC → the previous ESC was literal data
+                        put(0x1B);
+                        // Stay in DcsEscape to check if this new ESC starts ST
+                    } else {
+                        // Not ST → the ESC and this character are literal data
+                        put(0x1B);
+                        put(cc);
+                        _state = DcsPassthrough;
                     }
                     break;
                 case DcsIgnore:

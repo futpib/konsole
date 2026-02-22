@@ -262,8 +262,8 @@ QByteArray TmuxGateway::decodeOctalEscapes(const QByteArray &encoded)
                 result.append('?');
                 i++;
             }
-        } else if (c < ' ' && c != '\t') {
-            // Skip control characters
+        } else if (static_cast<unsigned char>(c) < ' ' && c != '\t') {
+            // Skip control characters (but not high bytes from UTF-8)
             i++;
         } else {
             result.append(c);

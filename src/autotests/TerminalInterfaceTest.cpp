@@ -210,7 +210,7 @@ void TerminalInterfaceTest::testTerminalInterfaceUsingSpy()
     // #1B - Test signal currentDirectoryChanged(QString)
     // Invalid directory - no signal should be emitted
     terminal->sendInput(QStringLiteral("cd /usrADADFASDF\n"));
-    stateSpy.wait(2500);
+    stateSpy.wait(500);
     QCOMPARE(stateSpy.count(), 0);
 
     // Should be no change since the above cd didn't work
@@ -220,7 +220,7 @@ void TerminalInterfaceTest::testTerminalInterfaceUsingSpy()
     // Test starting a new program
     QString command = QStringLiteral("top");
     terminal->sendInput(command + QLatin1Char('\n'));
-    stateSpy.wait(2500);
+    stateSpy.wait(500);
     foregroundProcessId = terminal->foregroundProcessId();
     QVERIFY(foregroundProcessId != -1);
 
@@ -250,7 +250,7 @@ void TerminalInterfaceTest::testTerminalInterfaceUsingSpy()
     QCOMPARE(foregroundProcessName, command);
 
     terminal->sendInput(QStringLiteral("q"));
-    stateSpy.wait(2500);
+    stateSpy.wait(500);
 
     // Nothing running in foreground
     foregroundProcessId = terminal->foregroundProcessId();

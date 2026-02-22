@@ -105,6 +105,7 @@ protected:
     void setMode(int mode) override;
     void resetMode(int mode) override;
     void receiveChars(const QVector<uint> &chars) override;
+    bool receiveRawData(const char *text, int length) override;
 
 private Q_SLOTS:
     // Causes sessionAttributeChanged() to be emitted for each (int,QString)
@@ -175,6 +176,7 @@ private:
         DcsParam,
         DcsIntermediate,
         DcsPassthrough,
+        DcsEscape,
         DcsIgnore,
         OscString,
         SosPmApcString,
@@ -375,6 +377,7 @@ private:
 
     // tmux control mode
     bool m_tmuxControlMode = false;
+    bool m_tmuxRawEscSeen = false;
     QByteArray m_tmuxLineBuffer;
 };
 

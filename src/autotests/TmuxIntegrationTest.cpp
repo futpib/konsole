@@ -7,6 +7,7 @@
 #include "TmuxIntegrationTest.h"
 
 #include <QPointer>
+#include <QProcess>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
@@ -106,6 +107,67 @@ void TmuxIntegrationTest::testClosePaneTabThenGatewayTab()
     QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
 
     delete mwGuard.data();
+}
+
+void TmuxIntegrationTest::testTmuxControlModeAttach()
+{
+    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // Create a detached tmux session with a unique name
+    const QString sessionName = QStringLiteral("konsole-test-%1").arg(QCoreApplication::applicationPid());
+
+    QProcess tmuxNewSession;
+    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName, QStringLiteral("sleep 30")});
+    QVERIFY(tmuxNewSession.waitForFinished(5000));
+    QCOMPARE(tmuxNewSession.exitCode(), 0);
+
+    // Simulate: konsole -e 'tmux -CC attach -t <sessionName>'
+    auto *mw = new MainWindow();
+    QPointer<MainWindow> mwGuard(mw);
+    ViewManager *vm = mw->viewManager();
+
+    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
+    profile->setProperty(Profile::Command, tmuxPath);
+    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
+
+    Session *gatewaySession = vm->createSession(profile, QString());
+    auto *view = vm->createView(gatewaySession);
+    vm->activeContainer()->addView(view);
+    gatewaySession->run();
+
+    QPointer<TabbedViewContainer> container = vm->activeContainer();
+    QVERIFY(container);
+    QCOMPARE(container->count(), 1);
+
+    // Wait for tmux control mode to create virtual pane tab(s)
+    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+
+    // Close the pane tab, then the gateway tab
+    Session *paneSession = nullptr;
+    const auto sessions = vm->sessions();
+    for (Session *s : sessions) {
+        if (s != gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    paneSession->closeInNormalWay();
+    gatewaySession->closeInNormalWay();
+
+    // Wait for everything to tear down
+    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
+
+    delete mwGuard.data();
+
+    // Clean up the tmux session
+    QProcess tmuxKill;
+    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
+    tmuxKill.waitForFinished(5000);
 }
 
 QTEST_MAIN(TmuxIntegrationTest)
