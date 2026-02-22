@@ -59,6 +59,7 @@ private Q_SLOTS:
 
 private:
     void handleListWindowsResponse(bool success, const QString &response);
+    void refreshClientCount();
 
     TmuxGateway *_gateway;
     Session *_gatewaySession;

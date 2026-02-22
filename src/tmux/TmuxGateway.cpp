@@ -178,6 +178,21 @@ std::optional<TmuxNotification> TmuxGateway::parseNotification(const QByteArray 
         int paneId = parsePaneId(line.mid(10));
         return TmuxPaneContinuedNotification{paneId};
 
+    } else if (line.startsWith("%client-session-changed ")) {
+        // %client-session-changed clientname $sessionId sessionname
+        QList<QByteArray> parts = line.mid(24).split(' ');
+        if (parts.size() < 3) {
+            return std::nullopt;
+        }
+        QString clientName = QString::fromUtf8(parts[0]);
+        int sessionId = parseSessionId(parts[1]);
+        QString sessionName = QString::fromUtf8(parts[2]);
+        return TmuxClientSessionChangedNotification{clientName, sessionId, sessionName};
+
+    } else if (line.startsWith("%client-detached ")) {
+        QString clientName = QString::fromUtf8(line.mid(17));
+        return TmuxClientDetachedNotification{clientName};
+
     } else if (line.startsWith("%exit")) {
         QString reason;
         if (line.length() > 6) {
@@ -223,6 +238,10 @@ void TmuxGateway::handleNotification(const QByteArray &line)
                 Q_EMIT panePaused(n.paneId);
             } else if constexpr (std::is_same_v<T, TmuxPaneContinuedNotification>) {
                 Q_EMIT paneContinued(n.paneId);
+            } else if constexpr (std::is_same_v<T, TmuxClientSessionChangedNotification>) {
+                Q_EMIT clientSessionChanged(n.clientName, n.sessionId, n.sessionName);
+            } else if constexpr (std::is_same_v<T, TmuxClientDetachedNotification>) {
+                Q_EMIT clientDetached(n.clientName);
             } else if constexpr (std::is_same_v<T, TmuxExitNotification>) {
                 Q_EMIT exitReceived(n.reason);
             }

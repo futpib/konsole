@@ -29,6 +29,8 @@ public:
     void sendClientSize();
     void stop();
 
+    void setOtherClientsAttached(bool attached);
+
 private:
     TmuxGateway *_gateway;
     TmuxLayoutManager *_layoutManager;
@@ -36,6 +38,7 @@ private:
 
     QTimer _resizeTimer;
     QMap<int, QSize> _lastClientSizes;
+    bool _otherClientsAttached = false;
 };
 
 } // namespace Konsole

@@ -39,6 +39,12 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
     connect(_gateway, &TmuxGateway::exitReceived, this, &TmuxController::onExit);
     connect(_gateway, &TmuxGateway::panePaused, _paneManager, &TmuxPaneManager::pausePane);
     connect(_gateway, &TmuxGateway::paneContinued, _paneManager, &TmuxPaneManager::continuePane);
+    connect(_gateway, &TmuxGateway::clientSessionChanged, this, [this]() {
+        refreshClientCount();
+    });
+    connect(_gateway, &TmuxGateway::clientDetached, this, [this]() {
+        refreshClientCount();
+    });
 
     // Pane view size changes → resize coordinator
     connect(_paneManager, &TmuxPaneManager::paneViewSizeChanged, this, [this]() {
@@ -156,6 +162,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
     }
 
     _state = State::Idle;
+    refreshClientCount();
     Q_EMIT initialWindowsOpened();
 }
 
@@ -251,6 +258,19 @@ void TmuxController::onExit(const QString &reason)
 void TmuxController::sendClientSize()
 {
     _resizeCoordinator->sendClientSize();
+}
+
+void TmuxController::refreshClientCount()
+{
+    _gateway->sendCommand(QStringLiteral("list-clients -F \"#{client_name}\""),
+                          [this](bool success, const QString &response) {
+                              if (!success) {
+                                  return;
+                              }
+                              int clientCount = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts).count();
+                              // We are one of the clients, so others = count - 1
+                              _resizeCoordinator->setOtherClientsAttached(clientCount > 1);
+                          });
 }
 
 } // namespace Konsole

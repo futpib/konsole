@@ -69,6 +69,16 @@ struct TmuxPaneContinuedNotification {
     int paneId;
 };
 
+struct TmuxClientSessionChangedNotification {
+    QString clientName;
+    int sessionId;
+    QString sessionName;
+};
+
+struct TmuxClientDetachedNotification {
+    QString clientName;
+};
+
 struct TmuxExitNotification {
     QString reason;
 };
@@ -85,6 +95,8 @@ using TmuxNotification = std::variant<TmuxOutputNotification,
                                        TmuxSessionWindowChangedNotification,
                                        TmuxPanePausedNotification,
                                        TmuxPaneContinuedNotification,
+                                       TmuxClientSessionChangedNotification,
+                                       TmuxClientDetachedNotification,
                                        TmuxExitNotification>;
 
 } // namespace Konsole

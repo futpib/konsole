@@ -95,7 +95,7 @@ void TmuxResizeCoordinator::sendClientSize()
         int windowId = it.key();
         int tabIndex = it.value();
 
-        if (!windowFocused || tabIndex != activeTabIndex) {
+        if (_otherClientsAttached && (!windowFocused || tabIndex != activeTabIndex)) {
             // Clear per-window size for non-active tabs and when unfocused,
             // so other clients can use their own size
             if (_lastClientSizes.contains(windowId)) {
@@ -123,6 +123,14 @@ void TmuxResizeCoordinator::sendClientSize()
             lastSize = QSize(totalCols, totalLines);
             _gateway->sendCommand(QStringLiteral("refresh-client -C @%1:%2x%3").arg(windowId).arg(totalCols).arg(totalLines));
         }
+    }
+}
+
+void TmuxResizeCoordinator::setOtherClientsAttached(bool attached)
+{
+    if (_otherClientsAttached != attached) {
+        _otherClientsAttached = attached;
+        _resizeTimer.start();
     }
 }
 
