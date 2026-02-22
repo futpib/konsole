@@ -261,6 +261,10 @@ set(konsoleprivate_SRCS ${windowadaptors_SRCS}
 
                         tmux/TmuxLayoutParser.cpp
                         tmux/TmuxGateway.cpp
+                        tmux/TmuxPaneManager.cpp
+                        tmux/TmuxLayoutManager.cpp
+                        tmux/TmuxResizeCoordinator.cpp
+                        tmux/TmuxPaneStateRecovery.cpp
                         tmux/TmuxController.cpp
                         tmux/TmuxControllerRegistry.cpp
                         tmux/TmuxSessionBridge.cpp
