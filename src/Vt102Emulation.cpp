@@ -661,6 +661,16 @@ void Vt102Emulation::osc_end(const uint cc)
 
 void Vt102Emulation::put(const uint cc)
 {
+    if (m_tmuxControlMode) {
+        if (cc == '\n') {
+            Q_EMIT tmuxControlModeLineReceived(m_tmuxLineBuffer);
+            m_tmuxLineBuffer.clear();
+        } else if (cc != '\r') {
+            m_tmuxLineBuffer.append(static_cast<char>(cc));
+        }
+        return;
+    }
+
     if (m_SixelPictureDefinition && cc >= 0x21) {
         addToCurrentToken(cc);
         processSixel(cc);
@@ -669,14 +679,26 @@ void Vt102Emulation::put(const uint cc)
 
 void Vt102Emulation::hook(const uint cc)
 {
+    qWarning() << "Vt102Emulation::hook() called with cc=" << cc << "nIntermediate=" << _nIntermediate << "params.count=" << params.count << "params.value[0]=" << params.value[0];
     if (cc == 'q' && _nIntermediate == 0) {
         m_SixelPictureDefinition = true;
         resetTokenizer();
+    } else if (cc == 'p' && _nIntermediate == 0 && params.value[0] == 1000) {
+        m_tmuxControlMode = true;
+        m_tmuxLineBuffer.clear();
+        Q_EMIT tmuxControlModeStarted();
     }
 }
 
 void Vt102Emulation::unhook()
 {
+    if (m_tmuxControlMode) {
+        m_tmuxControlMode = false;
+        m_tmuxLineBuffer.clear();
+        Q_EMIT tmuxControlModeEnded();
+        return;
+    }
+
     m_SixelPictureDefinition = false;
     SixelModeDisable();
     resetTokenizer();

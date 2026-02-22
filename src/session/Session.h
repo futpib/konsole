@@ -46,7 +46,6 @@ class TerminalDisplay;
 class ZModemDialog;
 class HistoryType;
 class SessionController;
-
 /**
  * Represents a terminal session consisting of a pseudo-teletype and a terminal emulation.
  * The pseudo-teletype (or PTY) handles I/O between the terminal process and Konsole.
@@ -88,6 +87,9 @@ public:
      */
     explicit Session(QObject *parent = nullptr);
     ~Session() override;
+
+    /** Returns true if this is a virtual session (no PTY). */
+    virtual bool isVirtual() const;
 
     /* Returns the process info so the plugins can peek at it's name */
     ProcessInfo *getProcessInfo();
@@ -476,7 +478,7 @@ public Q_SLOTS:
      *
      * This creates the terminal process and connects the teletype to it.
      */
-    void run();
+    virtual void run();
 
     /**
      * Returns the environment of this session as a list of strings like
@@ -502,7 +504,7 @@ public Q_SLOTS:
      * closeInNormalWay() and, optionally, closeInForceWay().
      */
     // Q_SCRIPTABLE void close(); // This cause the menu issues bko 185466
-    void close();
+    virtual void close();
 
     /**
      * Kill the terminal process in normal way. This sends a hangup signal
@@ -911,13 +913,24 @@ Q_SIGNALS:
      */
     void hostnameChanged(const QString &hostname);
 
-private Q_SLOTS:
-    void done(int, QProcess::ExitStatus);
+    /**
+     * Emitted when the terminal enters a protocol mode (e.g. tmux control mode).
+     * ViewManager listens for this to create the appropriate bridge/controller.
+     *
+     * @param protocolId Identifies the protocol (e.g. "tmux")
+     * @param session The session that entered protocol mode
+     */
+    void protocolModeDetected(const QString &protocolId, Session *session);
 
+protected Q_SLOTS:
+    void done(int, QProcess::ExitStatus);
+    void onReceiveBlock(const char *buf, int len);
+    void updateWindowSize(int lines, int columns);
+
+private Q_SLOTS:
     void fireZModemDownloadDetected();
     void fireZModemUploadDetected();
 
-    void onReceiveBlock(const char *buf, int len);
     void silenceTimerDone();
     void activityTimerDone();
     void resetNotifications();
@@ -933,7 +946,6 @@ private Q_SLOTS:
     void zmodemFinished();
 
     void updateFlowControlState(bool suspended);
-    void updateWindowSize(int lines, int columns);
 
     // Relays the signal from Emulation and sets _isPrimaryScreen
     void onPrimaryScreenInUse(bool use);
@@ -945,6 +957,11 @@ private Q_SLOTS:
      * Parses container;push/pop commands to update container context.
      */
     void handleOsc777(const QStringList &params);
+
+protected:
+    Pty *_shellProcess = nullptr;
+    Emulation *_emulation = nullptr;
+    ProcessInfo *_sessionProcessInfo = nullptr;
 
 private:
     bool isCalledViaDbusAndForbidden() const;
@@ -967,9 +984,6 @@ private:
     QString validDirectory(const QString &dir) const;
 
     QUuid _uniqueIdentifier; // SHELL_SESSION_ID
-
-    Pty *_shellProcess = nullptr;
-    Emulation *_emulation = nullptr;
 
     QList<TerminalDisplay *> _views;
 
@@ -1018,7 +1032,6 @@ private:
     QString _currentWorkingDir;
     QUrl _reportedWorkingUrl;
 
-    ProcessInfo *_sessionProcessInfo = nullptr;
     ProcessInfo *_foregroundProcessInfo = nullptr;
     int _foregroundPid = 0;
 

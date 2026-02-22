@@ -760,6 +760,10 @@ void TerminalDisplay::paintEvent(QPaintEvent *pe)
     // set https://bugreports.qt.io/browse/QTBUG-66036
     paint.setRenderHint(QPainter::TextAntialiasing, _terminalFont->antialiasText());
 
+    if (!_screenWindow) {
+        return;
+    }
+
     for (const QRect &rect : std::as_const(dirtyImageRegion)) {
         _terminalPainter->drawContents(_image, paint, rect, false, _imageSize, _bidiEnabled, _lineProperties, _screenWindow->screen()->ulColorTable());
     }

@@ -48,6 +48,7 @@
 #include "session/SessionManager.h"
 
 #include "terminalDisplay/TerminalDisplay.h"
+#include "tmux/TmuxSessionBridge.h"
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
@@ -736,6 +737,14 @@ void ViewManager::sessionFinished(Session *session)
     }
 }
 
+void ViewManager::onProtocolModeDetected(const QString &protocolId, Session *session)
+{
+    if (protocolId == QStringLiteral("tmux")) {
+        // Self-managing: parented to this ViewManager, self-destructs on tmux end
+        new TmuxSessionBridge(session, this, this);
+    }
+}
+
 void ViewManager::focusAnotherTerminal(ViewSplitter *toplevelSplitter)
 {
     auto tabTterminalDisplays = toplevelSplitter->findChildren<TerminalDisplay *>();
@@ -994,6 +1003,7 @@ TerminalDisplay *ViewManager::createView(Session *session)
     //
     // Use Qt::UniqueConnection to avoid duplicate connection
     connect(session, &Konsole::Session::finished, this, &Konsole::ViewManager::sessionFinished, Qt::UniqueConnection);
+    connect(session, &Konsole::Session::protocolModeDetected, this, &Konsole::ViewManager::onProtocolModeDetected, Qt::UniqueConnection);
     TerminalDisplay *display = createTerminalDisplay();
     createController(session, display);
 

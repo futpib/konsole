@@ -53,6 +53,7 @@ ecm_add_tests(
     SessionTest.cpp
     TerminalInterfaceTest.cpp
     TerminalTest.cpp
+    TmuxIntegrationTest.cpp
     ViewManagerTest.cpp
     LINK_LIBRARIES ${KONSOLE_TEST_LIBS} KF6::Parts
 )

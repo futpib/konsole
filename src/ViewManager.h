@@ -480,6 +480,8 @@ private Q_SLOTS:
 
     void toggleLineNumbers();
 
+    void onProtocolModeDetected(const QString &protocolId, Session *session);
+
 private:
     Q_DISABLE_COPY(ViewManager)
 

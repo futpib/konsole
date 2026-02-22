@@ -95,6 +95,11 @@ public Q_SLOTS:
     void focusChanged(bool focused) override;
     void clearHistory() override;
 
+Q_SIGNALS:
+    void tmuxControlModeStarted();
+    void tmuxControlModeLineReceived(const QByteArray &line);
+    void tmuxControlModeEnded();
+
 protected:
     // reimplemented from Emulation
     void setMode(int mode) override;
@@ -367,6 +372,10 @@ private:
     int getFreeGraphicsImageId();
 
     QMediaPlayer *player;
+
+    // tmux control mode
+    bool m_tmuxControlMode = false;
+    QByteArray m_tmuxLineBuffer;
 };
 
 }

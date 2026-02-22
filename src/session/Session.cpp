@@ -75,6 +75,8 @@
 #include "terminalDisplay/TerminalDisplay.h"
 #include "terminalDisplay/TerminalScrollBar.h"
 
+#include "ViewManager.h"
+
 #ifndef Q_OS_WIN
 // Linux
 #if HAVE_GETPWUID
@@ -140,6 +142,13 @@ Session::Session(QObject *parent)
     connect(_emulation, &Konsole::Emulation::imageResizeRequest, this, &Konsole::Session::resizeRequest);
     connect(_emulation, &Konsole::Emulation::sessionAttributeRequest, this, &Konsole::Session::sessionAttributeRequest);
 
+    // tmux control mode detection — relay to ViewManager via protocolModeDetected
+    if (auto *vtEmulation = qobject_cast<Vt102Emulation *>(_emulation)) {
+        connect(vtEmulation, &Vt102Emulation::tmuxControlModeStarted, this, [this]() {
+            Q_EMIT protocolModeDetected(QStringLiteral("tmux"), this);
+        });
+    }
+
     // create new teletype for I/O with shell process
     openTeletype(-1, true);
 
@@ -161,6 +170,11 @@ Session::~Session()
     delete _shellProcess;
     delete _emulation;
     delete _zmodemProc;
+}
+
+bool Session::isVirtual() const
+{
+    return false;
 }
 
 void Session::openTeletype(int fd, bool runShell)
@@ -743,7 +757,9 @@ void Session::setTabTitleFormat(TabTitleContext context, const QString &format)
     if (context == LocalTabTitle) {
         _localTabTitleFormat = format;
         ProcessInfo *process = getProcessInfo();
-        process->setUserNameRequired(format.contains(QLatin1String("%u")));
+        if (process) {
+            process->setUserNameRequired(format.contains(QLatin1String("%u")));
+        }
     } else if (context == RemoteTabTitle) {
         _remoteTabTitleFormat = format;
     }
@@ -913,6 +929,10 @@ void Session::updateWindowSize(int lines, int columns)
 {
     Q_ASSERT(lines > 0 && columns > 0);
 
+    if (!_shellProcess) {
+        return;
+    }
+
     int width = 0;
     int height = 0;
     if (!_views.isEmpty()) {
@@ -926,6 +946,10 @@ void Session::updateWindowSize(int lines, int columns)
 }
 void Session::refresh()
 {
+    if (!_shellProcess) {
+        return;
+    }
+
     // attempt to get the shell process to redraw the display
     //
     // this requires the program running in the shell
@@ -1244,7 +1268,9 @@ ProcessInfo *Session::getProcessInfo()
         // Update _foregroundPid to reflect the current state (shell process)
         // This is needed for container context detection to work correctly
         // when user exits a container and returns to the host shell
-        _foregroundPid = _shellProcess->foregroundProcessGroup();
+        if (_shellProcess) {
+            _foregroundPid = _shellProcess->foregroundProcessGroup();
+        }
 
         // Update container context even when foreground process is the shell
         // This handles the case when user exits a container
@@ -1256,7 +1282,9 @@ ProcessInfo *Session::getProcessInfo()
 
 void Session::updateSessionProcessInfo()
 {
-    Q_ASSERT(_shellProcess);
+    if (!_shellProcess) {
+        return;
+    }
 
     bool ok;
     // The checking for pid changing looks stupid, but it is needed
@@ -1279,7 +1307,9 @@ void Session::updateSessionProcessInfo()
 
 bool Session::updateForegroundProcessInfo()
 {
-    Q_ASSERT(_shellProcess);
+    if (!_shellProcess) {
+        return false;
+    }
 
     const int foregroundPid = _shellProcess->foregroundProcessGroup();
     if (foregroundPid != _foregroundPid) {
@@ -1806,6 +1836,9 @@ void Session::setPreferredSize(const QSize &size)
 
 int Session::processId() const
 {
+    if (!_shellProcess) {
+        return 0;
+    }
     return _shellProcess->shellProcessId();
 }
 
@@ -2130,6 +2163,9 @@ int Session::foregroundProcessId()
 
 bool Session::isForegroundProcessActive()
 {
+    if (!_shellProcess) {
+        return false;
+    }
     const auto pid = processId();
     const auto fgid = _shellProcess->foregroundProcessGroup();
 

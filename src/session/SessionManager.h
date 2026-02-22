@@ -22,6 +22,7 @@ class KConfig;
 namespace Konsole
 {
 class Session;
+class VirtualSession;
 class Profile;
 
 /**
@@ -64,6 +65,13 @@ public:
      * is null the default profile (see ProfileManager::defaultProfile()) will be used.
      */
     Session *createSession(QExplicitlySharedDataPointer<Profile> profile = QExplicitlySharedDataPointer<Profile>());
+
+    /**
+     * Creates a virtual session (no PTY) for use with tmux control mode panes
+     * and similar. The session is registered with SessionManager and will be
+     * cleaned up through the normal sessionTerminated path.
+     */
+    VirtualSession *createVirtualSession(QExplicitlySharedDataPointer<Profile> profile = QExplicitlySharedDataPointer<Profile>());
 
     /** Sets the profile associated with a session. */
     void setSessionProfile(Session *session, QExplicitlySharedDataPointer<Profile> profile);
