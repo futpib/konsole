@@ -7,7 +7,9 @@
 #ifndef TMUXRESIZECOORDINATOR_H
 #define TMUXRESIZECOORDINATOR_H
 
+#include <QMap>
 #include <QObject>
+#include <QSize>
 #include <QTimer>
 
 namespace Konsole
@@ -33,8 +35,7 @@ private:
     ViewManager *_viewManager;
 
     QTimer _resizeTimer;
-    int _lastClientCols = 0;
-    int _lastClientLines = 0;
+    QMap<int, QSize> _lastClientSizes;
 };
 
 } // namespace Konsole

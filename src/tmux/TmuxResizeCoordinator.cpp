@@ -14,6 +14,8 @@
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
+#include <QApplication>
+
 namespace Konsole
 {
 
@@ -26,6 +28,13 @@ TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxLayoutMan
     _resizeTimer.setSingleShot(true);
     _resizeTimer.setInterval(100);
     connect(&_resizeTimer, &QTimer::timeout, this, &TmuxResizeCoordinator::sendClientSize);
+
+    connect(qApp, &QApplication::focusChanged, this, [this]() {
+        _resizeTimer.start();
+    });
+    connect(viewManager, &ViewManager::activeViewChanged, this, [this]() {
+        _resizeTimer.start();
+    });
 }
 
 void TmuxResizeCoordinator::onPaneViewSizeChanged(bool suppressResize)
@@ -40,25 +49,6 @@ void TmuxResizeCoordinator::sendClientSize()
 {
     TabbedViewContainer *container = _viewManager->activeContainer();
     if (!container) {
-        return;
-    }
-
-    ViewSplitter *splitter = nullptr;
-    auto *cur = qobject_cast<ViewSplitter *>(container->currentWidget());
-    if (cur && !cur->findChildren<TerminalDisplay *>().isEmpty()) {
-        splitter = cur;
-    }
-    if (!splitter) {
-        const auto &windowToTab = _layoutManager->windowToTabIndex();
-        for (auto it = windowToTab.constBegin(); it != windowToTab.constEnd(); ++it) {
-            auto *s = qobject_cast<ViewSplitter *>(container->widget(it.value()));
-            if (s) {
-                splitter = s;
-                break;
-            }
-        }
-    }
-    if (!splitter) {
         return;
     }
 
@@ -97,14 +87,42 @@ void TmuxResizeCoordinator::sendClientSize()
         }
     };
 
-    QSize totalSize = computeSize(splitter);
-    int totalCols = totalSize.width();
-    int totalLines = totalSize.height();
+    int activeTabIndex = container->currentIndex();
+    bool windowFocused = container->window() && container->window()->isActiveWindow();
 
-    if (totalCols > 0 && totalLines > 0 && (totalCols != _lastClientCols || totalLines != _lastClientLines)) {
-        _lastClientCols = totalCols;
-        _lastClientLines = totalLines;
-        _gateway->sendCommand(QStringLiteral("refresh-client -C %1,%2").arg(totalCols).arg(totalLines));
+    const auto &windowToTab = _layoutManager->windowToTabIndex();
+    for (auto it = windowToTab.constBegin(); it != windowToTab.constEnd(); ++it) {
+        int windowId = it.key();
+        int tabIndex = it.value();
+
+        if (!windowFocused || tabIndex != activeTabIndex) {
+            // Clear per-window size for non-active tabs and when unfocused,
+            // so other clients can use their own size
+            if (_lastClientSizes.contains(windowId)) {
+                _lastClientSizes.remove(windowId);
+                _gateway->sendCommand(QStringLiteral("refresh-client -C @%1:").arg(windowId));
+            }
+            continue;
+        }
+
+        auto *windowSplitter = qobject_cast<ViewSplitter *>(container->widget(tabIndex));
+        if (!windowSplitter) {
+            continue;
+        }
+
+        QSize totalSize = computeSize(windowSplitter);
+        int totalCols = totalSize.width();
+        int totalLines = totalSize.height();
+
+        if (totalCols <= 0 || totalLines <= 0) {
+            continue;
+        }
+
+        QSize &lastSize = _lastClientSizes[windowId];
+        if (totalCols != lastSize.width() || totalLines != lastSize.height()) {
+            lastSize = QSize(totalCols, totalLines);
+            _gateway->sendCommand(QStringLiteral("refresh-client -C @%1:%2x%3").arg(windowId).arg(totalCols).arg(totalLines));
+        }
     }
 }
 
