@@ -243,6 +243,7 @@ void TmuxGateway::handleNotification(const QByteArray &line)
             } else if constexpr (std::is_same_v<T, TmuxClientDetachedNotification>) {
                 Q_EMIT clientDetached(n.clientName);
             } else if constexpr (std::is_same_v<T, TmuxExitNotification>) {
+                _exited = true;
                 Q_EMIT exitReceived(n.reason);
             }
         },
@@ -260,6 +261,13 @@ void TmuxGateway::finishCurrentCommand(bool success)
 
 void TmuxGateway::sendCommand(const QString &command, CommandCallback callback)
 {
+    if (_exited) {
+        if (callback) {
+            callback(false, QString());
+        }
+        return;
+    }
+
     PendingCommand cmd;
     cmd.command = command;
     cmd.callback = std::move(callback);

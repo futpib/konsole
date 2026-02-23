@@ -63,6 +63,7 @@ private:
     void writeToGateway(const QByteArray &data);
 
     Session *_gatewaySession;
+    bool _exited = false;
 
     struct PendingCommand {
         QString command;
