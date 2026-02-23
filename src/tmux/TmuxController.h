@@ -43,6 +43,7 @@ public:
     int paneIdForSession(Session *session) const;
     int windowIdForPane(int paneId) const;
     int windowCount() const;
+    int paneCountForWindow(int windowId) const;
 
     Session *gatewaySession() const;
     TmuxGateway *gateway() const;

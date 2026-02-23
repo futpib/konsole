@@ -136,6 +136,11 @@ int TmuxController::windowCount() const
     return _layoutManager->windowCount();
 }
 
+int TmuxController::paneCountForWindow(int windowId) const
+{
+    return _layoutManager->windowPanes().value(windowId).size();
+}
+
 void TmuxController::handleListWindowsResponse(bool success, const QString &response)
 {
     if (!success || response.isEmpty()) {
