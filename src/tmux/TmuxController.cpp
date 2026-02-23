@@ -24,8 +24,8 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
     , _gatewaySession(gatewaySession)
     , _viewManager(viewManager)
     , _paneManager(new TmuxPaneManager(gateway, this))
-    , _layoutManager(new TmuxLayoutManager(gateway, _paneManager, viewManager, this))
-    , _resizeCoordinator(new TmuxResizeCoordinator(gateway, _layoutManager, viewManager, this))
+    , _layoutManager(new TmuxLayoutManager(_paneManager, viewManager, this))
+    , _resizeCoordinator(new TmuxResizeCoordinator(gateway, this, _paneManager, viewManager, this))
     , _stateRecovery(new TmuxPaneStateRecovery(gateway, _paneManager, this))
 {
     // Gateway → controller slots
@@ -51,19 +51,19 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
 
     // Pane view size changes → resize coordinator
     connect(_paneManager, &TmuxPaneManager::paneViewSizeChanged, this, [this]() {
-        bool suppress = (_state == State::ApplyingLayout || _state == State::Initializing);
-        _resizeCoordinator->onPaneViewSizeChanged(suppress);
+        _resizeCoordinator->onPaneViewSizeChanged(shouldSuppressResize());
     });
 
     // Splitter drag state management
     connect(_layoutManager, &TmuxLayoutManager::splitterDragStarted, this, [this]() {
-        _state = State::Dragging;
-        _layoutManager->setDragging(true);
+        setState(State::Dragging);
     });
     connect(_layoutManager, &TmuxLayoutManager::splitterDragFinished, this, [this]() {
-        _state = State::Idle;
-        _layoutManager->setDragging(false);
+        setState(State::Idle);
     });
+
+    // Splitter moved → send per-pane resize commands
+    connect(_layoutManager, &TmuxLayoutManager::splitterMoved, _resizeCoordinator, &TmuxResizeCoordinator::onSplitterMoved);
 }
 
 TmuxController::~TmuxController()
@@ -73,7 +73,7 @@ TmuxController::~TmuxController()
 
 void TmuxController::initialize()
 {
-    _state = State::Initializing;
+    setState(State::Initializing);
     _gateway->sendCommand(QStringLiteral("list-windows -F \"#{window_id} #{window_name} #{window_layout}\""),
                           [this](bool success, const QString &response) {
                               handleListWindowsResponse(success, response);
@@ -128,17 +128,66 @@ int TmuxController::paneIdForSession(Session *session) const
 
 int TmuxController::windowIdForPane(int paneId) const
 {
-    return _layoutManager->windowIdForPane(paneId);
+    for (auto it = _windowPanes.constBegin(); it != _windowPanes.constEnd(); ++it) {
+        if (it.value().contains(paneId)) {
+            return it.key();
+        }
+    }
+    return -1;
 }
 
 int TmuxController::windowCount() const
 {
-    return _layoutManager->windowCount();
+    return _windowToTabIndex.size();
 }
 
 int TmuxController::paneCountForWindow(int windowId) const
 {
-    return _layoutManager->windowPanes().value(windowId).size();
+    return _windowPanes.value(windowId).size();
+}
+
+const QMap<int, int> &TmuxController::windowToTabIndex() const
+{
+    return _windowToTabIndex;
+}
+
+void TmuxController::applyWindowLayout(int windowId, const TmuxLayoutNode &layout)
+{
+    // Collect pane IDs from the layout tree
+    QList<int> paneIds;
+    std::function<void(const TmuxLayoutNode &)> collectPanes = [&](const TmuxLayoutNode &node) {
+        if (node.type == TmuxLayoutNodeType::Leaf) {
+            paneIds.append(node.paneId);
+        } else {
+            for (const auto &child : node.children) {
+                collectPanes(child);
+            }
+        }
+    };
+    collectPanes(layout);
+
+    QList<int> oldPaneIds = _windowPanes.value(windowId);
+    _windowPanes[windowId] = paneIds;
+
+    // Ensure all pane sessions exist
+    for (int paneId : paneIds) {
+        _paneManager->createPaneSession(paneId);
+    }
+
+    int tabIndex = _windowToTabIndex.value(windowId, -1);
+    int newTabIndex = _layoutManager->applyLayout(tabIndex, layout);
+    if (newTabIndex >= 0) {
+        _windowToTabIndex[windowId] = newTabIndex;
+    }
+
+    // Destroy pane sessions for panes removed from this window
+    if (tabIndex >= 0) {
+        for (int oldPaneId : oldPaneIds) {
+            if (!paneIds.contains(oldPaneId)) {
+                _paneManager->destroyPaneSession(oldPaneId);
+            }
+        }
+    }
 }
 
 void TmuxController::handleListWindowsResponse(bool success, const QString &response)
@@ -180,13 +229,12 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         auto parsed = TmuxLayoutParser::parse(layout);
         if (parsed.has_value()) {
             collectPaneDimensions(parsed.value());
-            _layoutManager->applyLayout(windowId, parsed.value());
+            applyWindowLayout(windowId, parsed.value());
         }
     }
 
     // Query pane state for each window before capturing history
-    const auto &windowPanes = _layoutManager->windowPanes();
-    for (auto it = windowPanes.constBegin(); it != windowPanes.constEnd(); ++it) {
+    for (auto it = _windowPanes.constBegin(); it != _windowPanes.constEnd(); ++it) {
         _stateRecovery->queryPaneStates(it.key());
     }
 
@@ -199,7 +247,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         _stateRecovery->capturePaneHistory(it.key());
     }
 
-    _state = State::Idle;
+    setState(State::Idle);
     refreshClientCount();
     Q_EMIT initialWindowsOpened();
 }
@@ -211,9 +259,9 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
 
     auto parsed = TmuxLayoutParser::parse(layout);
     if (parsed.has_value()) {
-        _state = State::ApplyingLayout;
-        _layoutManager->applyLayout(windowId, parsed.value());
-        _state = State::Idle;
+        setState(State::ApplyingLayout);
+        applyWindowLayout(windowId, parsed.value());
+        setState(State::Idle);
     }
 }
 
@@ -238,9 +286,9 @@ void TmuxController::onWindowAdded(int windowId)
                               QString layout = line.mid(secondSpace + 1);
                               auto parsed = TmuxLayoutParser::parse(layout);
                               if (parsed.has_value()) {
-                                  _state = State::ApplyingLayout;
-                                  _layoutManager->applyLayout(wId, parsed.value());
-                                  _state = State::Idle;
+                                  setState(State::ApplyingLayout);
+                                  applyWindowLayout(wId, parsed.value());
+                                  setState(State::Idle);
                               }
                           });
 }
@@ -248,14 +296,14 @@ void TmuxController::onWindowAdded(int windowId)
 void TmuxController::onWindowClosed(int windowId)
 {
     // Destroy pane sessions for this window
-    const auto &windowPanes = _layoutManager->windowPanes();
-    if (windowPanes.contains(windowId)) {
-        const QList<int> panes = windowPanes[windowId];
+    if (_windowPanes.contains(windowId)) {
+        const QList<int> panes = _windowPanes[windowId];
         for (int paneId : panes) {
             _paneManager->destroyPaneSession(paneId);
         }
     }
-    _layoutManager->removeWindow(windowId);
+    _windowToTabIndex.remove(windowId);
+    _windowPanes.remove(windowId);
 }
 
 void TmuxController::onWindowRenamed(int windowId, const QString &name)
@@ -283,7 +331,8 @@ void TmuxController::cleanup()
     _resizeCoordinator->stop();
     _stateRecovery->clear();
     _paneManager->destroyAllPaneSessions();
-    _layoutManager->clearAll();
+    _windowToTabIndex.clear();
+    _windowPanes.clear();
 }
 
 void TmuxController::onExit(const QString &reason)
@@ -296,6 +345,16 @@ void TmuxController::onExit(const QString &reason)
 void TmuxController::sendClientSize()
 {
     _resizeCoordinator->sendClientSize();
+}
+
+void TmuxController::setState(State newState)
+{
+    _state = newState;
+}
+
+bool TmuxController::shouldSuppressResize() const
+{
+    return _state == State::ApplyingLayout || _state == State::Initializing;
 }
 
 void TmuxController::refreshClientCount()

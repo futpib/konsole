@@ -7,6 +7,8 @@
 #ifndef TMUXCONTROLLER_H
 #define TMUXCONTROLLER_H
 
+#include <QList>
+#include <QMap>
 #include <QObject>
 
 namespace Konsole
@@ -14,6 +16,7 @@ namespace Konsole
 
 class Session;
 class TmuxGateway;
+class TmuxLayoutNode;
 class TmuxPaneManager;
 class TmuxLayoutManager;
 class TmuxResizeCoordinator;
@@ -45,6 +48,8 @@ public:
     int windowCount() const;
     int paneCountForWindow(int windowId) const;
 
+    const QMap<int, int> &windowToTabIndex() const;
+
     Session *gatewaySession() const;
     TmuxGateway *gateway() const;
 
@@ -62,6 +67,10 @@ private Q_SLOTS:
     void onExit(const QString &reason);
 
 private:
+    void setState(State newState);
+    bool shouldSuppressResize() const;
+
+    void applyWindowLayout(int windowId, const TmuxLayoutNode &layout);
     void handleListWindowsResponse(bool success, const QString &response);
     void refreshClientCount();
 
@@ -73,6 +82,9 @@ private:
     TmuxLayoutManager *_layoutManager;
     TmuxResizeCoordinator *_resizeCoordinator;
     TmuxPaneStateRecovery *_stateRecovery;
+
+    QMap<int, int> _windowToTabIndex;
+    QMap<int, QList<int>> _windowPanes;
 
     QString _sessionName;
     int _sessionId = -1;

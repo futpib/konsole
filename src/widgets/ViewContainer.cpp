@@ -794,14 +794,10 @@ void TabbedViewContainer::closeTmuxTab(const QList<TerminalDisplay *> &terminals
     int paneId = -1;
     int windowId = -1;
 
-    auto *registry = TmuxControllerRegistry::instance();
-    for (auto *ctrl : registry->controllers()) {
-        paneId = ctrl->paneIdForSession(firstSession);
-        if (paneId >= 0) {
-            controller = ctrl;
-            windowId = ctrl->windowIdForPane(paneId);
-            break;
-        }
+    controller = TmuxControllerRegistry::instance()->controllerForSession(firstSession);
+    if (controller) {
+        paneId = controller->paneIdForSession(firstSession);
+        windowId = controller->windowIdForPane(paneId);
     }
 
     if (!controller || windowId < 0) {

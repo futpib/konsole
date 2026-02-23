@@ -1219,37 +1219,34 @@ void SessionController::closeSession()
     // For tmux panes, confirm and send kill-pane to tmux.
     // Tmux will notify us via %layout-change / %window-close to trigger cleanup.
     if (session()->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
-        auto *registry = TmuxControllerRegistry::instance();
-        for (auto *controller : registry->controllers()) {
+        auto *controller = TmuxControllerRegistry::instance()->controllerForSession(session());
+        if (controller) {
             int paneId = controller->paneIdForSession(session());
-            if (paneId >= 0) {
-                int windowId = controller->windowIdForPane(paneId);
-                if (controller->paneCountForWindow(windowId) <= 1) {
-                    // Single pane in window: closing it is equivalent to closing the tab,
-                    // so offer the same Detach/Kill/Cancel dialog.
-                    int result = KMessageBox::questionTwoActionsCancel(
-                        view()->window(),
-                        i18n("Do you want to detach from the tmux session or kill this window?"),
-                        i18n("Close Tmux Window"),
-                        KGuiItem(i18nc("@action:button", "Detach"), QStringLiteral("network-disconnect")),
-                        KGuiItem(i18nc("@action:button", "Kill Window"), QStringLiteral("application-exit")));
-                    if (result == KMessageBox::PrimaryAction) {
-                        controller->requestDetach();
-                    } else if (result == KMessageBox::SecondaryAction) {
-                        controller->requestCloseWindow(windowId);
-                    }
-                } else {
-                    int result = KMessageBox::warningTwoActions(
-                        view()->window(),
-                        i18n("Are you sure you want to close this tmux pane? The process running in it will be terminated."),
-                        i18n("Confirm Close"),
-                        KGuiItem(i18nc("@action:button", "Close Pane"), QStringLiteral("application-exit")),
-                        KStandardGuiItem::cancel());
-                    if (result == KMessageBox::PrimaryAction) {
-                        controller->requestClosePane(paneId);
-                    }
+            int windowId = controller->windowIdForPane(paneId);
+            if (controller->paneCountForWindow(windowId) <= 1) {
+                // Single pane in window: closing it is equivalent to closing the tab,
+                // so offer the same Detach/Kill/Cancel dialog.
+                int result = KMessageBox::questionTwoActionsCancel(
+                    view()->window(),
+                    i18n("Do you want to detach from the tmux session or kill this window?"),
+                    i18n("Close Tmux Window"),
+                    KGuiItem(i18nc("@action:button", "Detach"), QStringLiteral("network-disconnect")),
+                    KGuiItem(i18nc("@action:button", "Kill Window"), QStringLiteral("application-exit")));
+                if (result == KMessageBox::PrimaryAction) {
+                    controller->requestDetach();
+                } else if (result == KMessageBox::SecondaryAction) {
+                    controller->requestCloseWindow(windowId);
                 }
-                return;
+            } else {
+                int result = KMessageBox::warningTwoActions(
+                    view()->window(),
+                    i18n("Are you sure you want to close this tmux pane? The process running in it will be terminated."),
+                    i18n("Confirm Close"),
+                    KGuiItem(i18nc("@action:button", "Close Pane"), QStringLiteral("application-exit")),
+                    KStandardGuiItem::cancel());
+                if (result == KMessageBox::PrimaryAction) {
+                    controller->requestClosePane(paneId);
+                }
             }
         }
         return;

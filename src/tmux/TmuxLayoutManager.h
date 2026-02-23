@@ -14,9 +14,7 @@
 namespace Konsole
 {
 
-class Session;
 class TerminalDisplay;
-class TmuxGateway;
 class TmuxLayoutNode;
 class TmuxPaneManager;
 class ViewManager;
@@ -26,39 +24,23 @@ class TmuxLayoutManager : public QObject
 {
     Q_OBJECT
 public:
-    TmuxLayoutManager(TmuxGateway *gateway, TmuxPaneManager *paneManager, ViewManager *viewManager, QObject *parent = nullptr);
+    TmuxLayoutManager(TmuxPaneManager *paneManager, ViewManager *viewManager, QObject *parent = nullptr);
 
-    void applyLayout(int windowId, const TmuxLayoutNode &layout);
-    void removeWindow(int windowId);
-    void clearAll();
-
-    const QMap<int, int> &windowToTabIndex() const;
-    const QMap<int, QList<int>> &windowPanes() const;
-
-    int windowIdForPane(int paneId) const;
-    int windowCount() const;
-
-    void setDragging(bool dragging);
+    int applyLayout(int tabIndex, const TmuxLayoutNode &layout);
 
 Q_SIGNALS:
     void splitterDragStarted();
     void splitterDragFinished();
+    void splitterMoved(ViewSplitter *splitter);
 
 private:
     void collectDisplays(ViewSplitter *splitter, QMap<int, TerminalDisplay *> &displayMap);
     void buildSplitterTree(ViewSplitter *splitter, const TmuxLayoutNode &node, QMap<int, TerminalDisplay *> &existingDisplays);
-    bool updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node);
+    bool updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node, bool skipSizeUpdate);
     void connectSplitterSignals(ViewSplitter *splitter);
-    void onSplitterMoved(ViewSplitter *splitter);
 
-    TmuxGateway *_gateway;
     TmuxPaneManager *_paneManager;
     ViewManager *_viewManager;
-
-    QMap<int, int> _windowToTabIndex;
-    QMap<int, QList<int>> _windowPanes;
-
-    bool _dragging = false;
 };
 
 } // namespace Konsole

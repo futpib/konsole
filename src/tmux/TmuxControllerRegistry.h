@@ -28,6 +28,7 @@ public:
     QList<TmuxController *> controllers() const;
 
     TmuxController *controllerForGatewaySession(Session *session) const;
+    TmuxController *controllerForSession(Session *session) const;
     TmuxController *controllerForPane(int paneId) const;
 
     bool hasTmuxControllers() const;

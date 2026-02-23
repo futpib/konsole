@@ -15,17 +15,20 @@
 namespace Konsole
 {
 
+class TmuxController;
 class TmuxGateway;
-class TmuxLayoutManager;
+class TmuxPaneManager;
 class ViewManager;
+class ViewSplitter;
 
 class TmuxResizeCoordinator : public QObject
 {
     Q_OBJECT
 public:
-    TmuxResizeCoordinator(TmuxGateway *gateway, TmuxLayoutManager *layoutManager, ViewManager *viewManager, QObject *parent = nullptr);
+    TmuxResizeCoordinator(TmuxGateway *gateway, TmuxController *controller, TmuxPaneManager *paneManager, ViewManager *viewManager, QObject *parent = nullptr);
 
     void onPaneViewSizeChanged(bool suppressResize);
+    void onSplitterMoved(ViewSplitter *splitter);
     void sendClientSize();
     void stop();
 
@@ -33,7 +36,8 @@ public:
 
 private:
     TmuxGateway *_gateway;
-    TmuxLayoutManager *_layoutManager;
+    TmuxController *_controller;
+    TmuxPaneManager *_paneManager;
     ViewManager *_viewManager;
 
     QTimer _resizeTimer;

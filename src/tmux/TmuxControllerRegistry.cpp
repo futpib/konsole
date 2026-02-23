@@ -53,6 +53,16 @@ TmuxController *TmuxControllerRegistry::controllerForGatewaySession(Session *ses
     return nullptr;
 }
 
+TmuxController *TmuxControllerRegistry::controllerForSession(Session *session) const
+{
+    for (TmuxController *controller : _controllers) {
+        if (controller->paneIdForSession(session) >= 0) {
+            return controller;
+        }
+    }
+    return nullptr;
+}
+
 TmuxController *TmuxControllerRegistry::controllerForPane(int paneId) const
 {
     for (TmuxController *controller : _controllers) {

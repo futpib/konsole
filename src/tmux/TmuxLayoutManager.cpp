@@ -6,7 +6,6 @@
 
 #include "TmuxLayoutManager.h"
 
-#include "TmuxGateway.h"
 #include "TmuxLayoutParser.h"
 #include "TmuxPaneManager.h"
 
@@ -19,47 +18,24 @@
 namespace Konsole
 {
 
-TmuxLayoutManager::TmuxLayoutManager(TmuxGateway *gateway, TmuxPaneManager *paneManager, ViewManager *viewManager, QObject *parent)
+TmuxLayoutManager::TmuxLayoutManager(TmuxPaneManager *paneManager, ViewManager *viewManager, QObject *parent)
     : QObject(parent)
-    , _gateway(gateway)
     , _paneManager(paneManager)
     , _viewManager(viewManager)
 {
 }
 
-void TmuxLayoutManager::applyLayout(int windowId, const TmuxLayoutNode &layout)
+int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
 {
     TabbedViewContainer *container = _viewManager->activeContainer();
     if (!container) {
-        return;
+        return -1;
     }
 
-    // Collect pane IDs from the layout tree
-    QList<int> paneIds;
-    std::function<void(const TmuxLayoutNode &)> collectPanes = [&](const TmuxLayoutNode &node) {
-        if (node.type == TmuxLayoutNodeType::Leaf) {
-            paneIds.append(node.paneId);
-        } else {
-            for (const auto &child : node.children) {
-                collectPanes(child);
-            }
-        }
-    };
-    collectPanes(layout);
-
-    QList<int> oldPaneIds = _windowPanes.value(windowId);
-    _windowPanes[windowId] = paneIds;
-
-    // Ensure all pane sessions exist
-    for (int paneId : paneIds) {
-        _paneManager->createPaneSession(paneId);
-    }
-
-    if (_windowToTabIndex.contains(windowId)) {
-        int tabIndex = _windowToTabIndex[windowId];
+    if (tabIndex >= 0) {
         auto *oldSplitter = qobject_cast<ViewSplitter *>(container->widget(tabIndex));
         if (oldSplitter) {
-            if (!updateSplitterSizes(oldSplitter, layout)) {
+            if (!updateSplitterSizes(oldSplitter, layout, false)) {
                 // Structure changed — collect existing displays, build new splitter, swap
                 QMap<int, TerminalDisplay *> existingDisplays;
                 collectDisplays(oldSplitter, existingDisplays);
@@ -82,7 +58,7 @@ void TmuxLayoutManager::applyLayout(int windowId, const TmuxLayoutNode &layout)
                 container->addSplitter(newSplitter, tabIndex);
                 container->setTabText(container->indexOf(newSplitter), tabText);
                 container->setTabIcon(container->indexOf(newSplitter), tabIcon);
-                _windowToTabIndex[windowId] = container->indexOf(newSplitter);
+                tabIndex = container->indexOf(newSplitter);
 
                 // The old splitter (and any remaining children like nested splitters)
                 // will be deleted. Displays were already detached above.
@@ -96,75 +72,26 @@ void TmuxLayoutManager::applyLayout(int windowId, const TmuxLayoutNode &layout)
                 }
             }
         }
+        return tabIndex;
+    }
 
-        // Destroy pane sessions for panes removed from this window
-        for (int oldPaneId : oldPaneIds) {
-            if (!paneIds.contains(oldPaneId)) {
-                _paneManager->destroyPaneSession(oldPaneId);
-            }
-        }
+    auto *splitter = new ViewSplitter();
+    QMap<int, TerminalDisplay *> noExisting;
+
+    if (layout.type == TmuxLayoutNodeType::Leaf) {
+        Session *session = _paneManager->sessionForPane(layout.paneId);
+        TerminalDisplay *display = _viewManager->createView(session);
+        splitter->addTerminalDisplay(display, Qt::Horizontal);
     } else {
-        auto *splitter = new ViewSplitter();
-        QMap<int, TerminalDisplay *> noExisting;
-
-        if (layout.type == TmuxLayoutNodeType::Leaf) {
-            Session *session = _paneManager->sessionForPane(layout.paneId);
-            TerminalDisplay *display = _viewManager->createView(session);
-            splitter->addTerminalDisplay(display, Qt::Horizontal);
-        } else {
-            buildSplitterTree(splitter, layout, noExisting);
-            connectSplitterSignals(splitter);
-        }
-
-        container->addSplitter(splitter);
-        int tabIndex = container->indexOf(splitter);
-        _windowToTabIndex[windowId] = tabIndex;
+        buildSplitterTree(splitter, layout, noExisting);
+        connectSplitterSignals(splitter);
     }
+
+    container->addSplitter(splitter);
+    return container->indexOf(splitter);
 }
 
-void TmuxLayoutManager::removeWindow(int windowId)
-{
-    _windowToTabIndex.remove(windowId);
-    _windowPanes.remove(windowId);
-}
-
-void TmuxLayoutManager::clearAll()
-{
-    _windowToTabIndex.clear();
-    _windowPanes.clear();
-}
-
-const QMap<int, int> &TmuxLayoutManager::windowToTabIndex() const
-{
-    return _windowToTabIndex;
-}
-
-const QMap<int, QList<int>> &TmuxLayoutManager::windowPanes() const
-{
-    return _windowPanes;
-}
-
-int TmuxLayoutManager::windowIdForPane(int paneId) const
-{
-    for (auto it = _windowPanes.constBegin(); it != _windowPanes.constEnd(); ++it) {
-        if (it.value().contains(paneId)) {
-            return it.key();
-        }
-    }
-    return -1;
-}
-
-int TmuxLayoutManager::windowCount() const
-{
-    return _windowToTabIndex.size();
-}
-
-void TmuxLayoutManager::setDragging(bool dragging)
-{
-    _dragging = dragging;
-}
-
-bool TmuxLayoutManager::updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node)
+bool TmuxLayoutManager::updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node, bool skipSizeUpdate)
 {
     if (node.type == TmuxLayoutNodeType::Leaf) {
         return splitter->count() == 1 && qobject_cast<TerminalDisplay *>(splitter->widget(0));
@@ -192,13 +119,13 @@ bool TmuxLayoutManager::updateSplitterSizes(ViewSplitter *splitter, const TmuxLa
             if (!childSplitter) {
                 return false;
             }
-            if (!updateSplitterSizes(childSplitter, child)) {
+            if (!updateSplitterSizes(childSplitter, child, skipSizeUpdate)) {
                 return false;
             }
         }
     }
 
-    if (!_dragging) {
+    if (!skipSizeUpdate) {
         QList<int> sizes;
         for (const auto &child : node.children) {
             if (splitter->orientation() == Qt::Horizontal) {
@@ -288,7 +215,7 @@ void TmuxLayoutManager::connectSplitterSignals(ViewSplitter *splitter)
 {
     disconnect(splitter, &QSplitter::splitterMoved, this, nullptr);
     connect(splitter, &QSplitter::splitterMoved, this, [this, splitter]() {
-        onSplitterMoved(splitter);
+        Q_EMIT splitterMoved(splitter);
     });
 
     for (int i = 0; i < splitter->count(); ++i) {
@@ -309,46 +236,6 @@ void TmuxLayoutManager::connectSplitterSignals(ViewSplitter *splitter)
         auto *childSplitter = qobject_cast<ViewSplitter *>(splitter->widget(i));
         if (childSplitter) {
             connectSplitterSignals(childSplitter);
-        }
-    }
-}
-
-void TmuxLayoutManager::onSplitterMoved(ViewSplitter *splitter)
-{
-    for (int i = 0; i < splitter->count(); ++i) {
-        QWidget *widget = splitter->widget(i);
-
-        while (auto *sub = qobject_cast<ViewSplitter *>(widget)) {
-            if (sub->count() == 0) {
-                break;
-            }
-            widget = sub->widget(0);
-        }
-
-        auto *display = qobject_cast<TerminalDisplay *>(widget);
-        if (!display) {
-            continue;
-        }
-
-        int paneId = -1;
-        const auto &paneMap = _paneManager->paneToSession();
-        for (auto it = paneMap.constBegin(); it != paneMap.constEnd(); ++it) {
-            if (it.value()->views().contains(display)) {
-                paneId = it.key();
-                break;
-            }
-        }
-        if (paneId < 0) {
-            continue;
-        }
-
-        int cols = display->columns();
-        int lines = display->lines();
-        if (cols > 0 && lines > 0) {
-            QString cmd = QStringLiteral("resize-pane -t %") + QString::number(paneId)
-                + QStringLiteral(" -x ") + QString::number(cols)
-                + QStringLiteral(" -y ") + QString::number(lines);
-            _gateway->sendCommand(cmd);
         }
     }
 }
