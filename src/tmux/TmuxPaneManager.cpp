@@ -157,6 +157,47 @@ QList<int> TmuxPaneManager::allPaneIds() const
     return _paneToSession.keys();
 }
 
+void TmuxPaneManager::queryPaneTitleInfo()
+{
+    static const QString format = QStringLiteral(
+        "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}");
+
+    _gateway->sendCommand(QStringLiteral("list-panes -a -F \"%1\"").arg(format),
+                          [this](bool success, const QString &response) {
+                              if (!success || response.isEmpty()) {
+                                  return;
+                              }
+                              const QStringList lines = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+                              for (const QString &line : lines) {
+                                  const QStringList parts = line.split(QLatin1Char('\t'));
+                                  if (parts.size() < 4) {
+                                      continue;
+                                  }
+                                  const QString &paneIdStr = parts[0];
+                                  if (!paneIdStr.startsWith(QLatin1Char('%'))) {
+                                      continue;
+                                  }
+                                  int paneId = paneIdStr.mid(1).toInt();
+                                  auto *session = qobject_cast<VirtualSession *>(_paneToSession.value(paneId, nullptr));
+                                  if (!session) {
+                                      continue;
+                                  }
+                                  const QString &command = parts[1];
+                                  const QString &path = parts[2];
+                                  const QString &title = parts[3];
+                                  if (!command.isEmpty()) {
+                                      session->setExternalProcessName(command);
+                                  }
+                                  if (!path.isEmpty()) {
+                                      session->setExternalCurrentDir(path);
+                                  }
+                                  if (!title.isEmpty()) {
+                                      session->setExternalPaneTitle(title);
+                                  }
+                              }
+                          });
+}
+
 } // namespace Konsole
 
 #include "moc_TmuxPaneManager.cpp"

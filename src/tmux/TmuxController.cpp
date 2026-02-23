@@ -13,7 +13,9 @@
 #include "TmuxPaneStateRecovery.h"
 #include "TmuxResizeCoordinator.h"
 
+#include "ViewManager.h"
 #include "session/Session.h"
+#include "widgets/ViewContainer.h"
 
 namespace Konsole
 {
@@ -60,6 +62,11 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
 
     // Splitter moved → send per-pane resize commands
     connect(_layoutManager, &TmuxLayoutManager::splitterMoved, _resizeCoordinator, &TmuxResizeCoordinator::onSplitterMoved);
+
+    // Periodic pane title refresh
+    _paneTitleTimer = new QTimer(this);
+    _paneTitleTimer->setInterval(2000);
+    connect(_paneTitleTimer, &QTimer::timeout, this, &TmuxController::refreshPaneTitles);
 }
 
 TmuxController::~TmuxController()
@@ -122,6 +129,11 @@ void TmuxController::requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientati
         cmd += QStringLiteral(" -b");
     }
     _gateway->sendCommand(cmd);
+}
+
+void TmuxController::requestRenameWindow(int windowId, const QString &name)
+{
+    _gateway->sendCommand(QStringLiteral("rename-window -t @%1 \"%2\"").arg(windowId).arg(name));
 }
 
 void TmuxController::requestDetach()
@@ -203,6 +215,23 @@ void TmuxController::applyWindowLayout(int windowId, const TmuxLayoutNode &layou
     }
 }
 
+void TmuxController::setWindowTabTitle(int windowId, const QString &name)
+{
+    int tabIndex = _windowToTabIndex.value(windowId, -1);
+    if (tabIndex < 0) {
+        return;
+    }
+    TabbedViewContainer *container = _viewManager->activeContainer();
+    if (container) {
+        container->setTabText(tabIndex, name);
+    }
+}
+
+void TmuxController::refreshPaneTitles()
+{
+    _paneManager->queryPaneTitleInfo();
+}
+
 void TmuxController::handleListWindowsResponse(bool success, const QString &response)
 {
     if (!success || response.isEmpty()) {
@@ -237,12 +266,14 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
             continue;
         }
         int windowId = windowIdStr.mid(1).toInt();
+        QString windowName = line.mid(firstSpace + 1, secondSpace - firstSpace - 1);
         QString layout = line.mid(secondSpace + 1);
 
         auto parsed = TmuxLayoutParser::parse(layout);
         if (parsed.has_value()) {
             collectPaneDimensions(parsed.value());
             applyWindowLayout(windowId, parsed.value());
+            setWindowTabTitle(windowId, windowName);
         }
     }
 
@@ -262,6 +293,8 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
 
     setState(State::Idle);
     refreshClientCount();
+    refreshPaneTitles();
+    _paneTitleTimer->start();
     Q_EMIT initialWindowsOpened();
 }
 
@@ -304,11 +337,13 @@ void TmuxController::onWindowAdded(int windowId)
                               }
                               QString windowIdStr = line.left(firstSpace);
                               int wId = windowIdStr.mid(1).toInt();
+                              QString windowName = line.mid(firstSpace + 1, secondSpace - firstSpace - 1);
                               QString layout = line.mid(secondSpace + 1);
                               auto parsed = TmuxLayoutParser::parse(layout);
                               if (parsed.has_value()) {
                                   setState(State::ApplyingLayout);
                                   applyWindowLayout(wId, parsed.value());
+                                  setWindowTabTitle(wId, windowName);
                                   setState(State::Idle);
                               }
                           });
@@ -329,8 +364,8 @@ void TmuxController::onWindowClosed(int windowId)
 
 void TmuxController::onWindowRenamed(int windowId, const QString &name)
 {
-    Q_UNUSED(windowId)
-    Q_UNUSED(name)
+    setWindowTabTitle(windowId, name);
+    _paneManager->queryPaneTitleInfo();
 }
 
 void TmuxController::onWindowPaneChanged(int windowId, int paneId)
@@ -349,6 +384,7 @@ void TmuxController::onSessionChanged(int sessionId, const QString &name)
 
 void TmuxController::cleanup()
 {
+    _paneTitleTimer->stop();
     _resizeCoordinator->stop();
     _stateRecovery->clear();
     _paneManager->destroyAllPaneSessions();

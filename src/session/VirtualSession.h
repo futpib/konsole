@@ -28,6 +28,10 @@ public:
 
     void injectData(const char *data, int length);
 
+    void setExternalProcessName(const QString &name);
+    void setExternalCurrentDir(const QString &dir);
+    void setExternalPaneTitle(const QString &title);
+
 protected:
     void run() override;
     void close() override;

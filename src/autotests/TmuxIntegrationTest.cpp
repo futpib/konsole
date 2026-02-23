@@ -22,6 +22,9 @@
 #include "../session/Session.h"
 #include "../session/SessionManager.h"
 #include "../terminalDisplay/TerminalDisplay.h"
+#include "../session/VirtualSession.h"
+#include "../tmux/TmuxController.h"
+#include "../tmux/TmuxControllerRegistry.h"
 #include "../tmux/TmuxLayoutManager.h"
 #include "../tmux/TmuxLayoutParser.h"
 #include "../tmux/TmuxPaneManager.h"
@@ -650,6 +653,112 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
 
     QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
     delete mwGuard.data();
+}
+
+void TmuxIntegrationTest::testTmuxPaneTitleInfo()
+{
+    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
+    if (bashPath.isEmpty()) {
+        QSKIP("bash command not found.");
+    }
+
+    // Create a detached tmux session running bash
+    const QString sessionName = QStringLiteral("konsole-title-test-%1").arg(QCoreApplication::applicationPid());
+
+    QProcess tmuxNewSession;
+    tmuxNewSession.start(tmuxPath,
+                         {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
+                          QStringLiteral("-x"), QStringLiteral("80"), QStringLiteral("-y"), QStringLiteral("24"),
+                          bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
+    QVERIFY(tmuxNewSession.waitForFinished(5000));
+    QCOMPARE(tmuxNewSession.exitCode(), 0);
+
+    // cd to /tmp so we have a known directory
+    QProcess sendCd;
+    sendCd.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), sessionName,
+                            QStringLiteral("cd /tmp"), QStringLiteral("Enter")});
+    QVERIFY(sendCd.waitForFinished(5000));
+    QCOMPARE(sendCd.exitCode(), 0);
+    QTest::qWait(500);
+
+    // Attach Konsole via -CC
+    auto *mw = new MainWindow();
+    QPointer<MainWindow> mwGuard(mw);
+    ViewManager *vm = mw->viewManager();
+
+    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
+    profile->setProperty(Profile::Command, tmuxPath);
+    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
+
+    Session *gatewaySession = vm->createSession(profile, QString());
+    auto *view = vm->createView(gatewaySession);
+    vm->activeContainer()->addView(view);
+    gatewaySession->run();
+
+    QPointer<TabbedViewContainer> container = vm->activeContainer();
+    QVERIFY(container);
+    QCOMPARE(container->count(), 1);
+
+    // Wait for tmux control mode to create virtual pane tab(s)
+    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+
+    // Find the pane session (not the gateway)
+    Session *paneSession = nullptr;
+    const auto sessions = vm->sessions();
+    for (Session *s : sessions) {
+        if (s != gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    auto *virtualSession = qobject_cast<VirtualSession *>(paneSession);
+    QVERIFY(virtualSession);
+
+    // Wait for pane title info to be queried (initial refresh + timer).
+    // The controller queries pane info on initialization and every 2 seconds.
+    // Check that getDynamicTitle() produces something meaningful.
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QString title = paneSession->getDynamicTitle();
+        qDebug() << "Pane dynamic title:" << title;
+        // The title should contain the current directory (/tmp) via %d placeholder
+        // or the process name (bash) via %n placeholder
+        return title.contains(QStringLiteral("tmp")) || title.contains(QStringLiteral("bash"));
+    }(), 10000);
+
+    // Verify that the tab title for the tmux window is set from #{window_name}
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSession);
+    QVERIFY(controller);
+    int paneId = controller->paneIdForSession(paneSession);
+    int windowId = controller->windowIdForPane(paneId);
+    QVERIFY(windowId >= 0);
+    int tabIndex = controller->windowToTabIndex().value(windowId, -1);
+    QVERIFY(tabIndex >= 0);
+    QString tabText = container->tabText(tabIndex);
+    qDebug() << "Tab text:" << tabText;
+    // The tab title should be the tmux window name (typically "bash" for the default shell)
+    QVERIFY2(!tabText.isEmpty(), "Tab text should not be empty for tmux window");
+
+    // Cleanup
+    const auto allSessions = vm->sessions();
+    for (Session *s : allSessions) {
+        if (s != gatewaySession) {
+            s->closeInNormalWay();
+        }
+    }
+    gatewaySession->closeInNormalWay();
+    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
+    delete mwGuard.data();
+
+    QProcess tmuxKill;
+    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
+    tmuxKill.waitForFinished(5000);
 }
 
 QTEST_MAIN(TmuxIntegrationTest)

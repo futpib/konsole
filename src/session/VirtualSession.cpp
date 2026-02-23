@@ -7,6 +7,7 @@
 #include "VirtualSession.h"
 
 #include "Emulation.h"
+#include "NullProcessInfo.h"
 
 namespace Konsole
 {
@@ -21,6 +22,25 @@ void VirtualSession::injectData(const char *data, int length)
     if (_emulation) {
         _emulation->receiveData(data, length);
     }
+}
+
+void VirtualSession::setExternalProcessName(const QString &name)
+{
+    auto *nullInfo = static_cast<NullProcessInfo *>(_sessionProcessInfo);
+    nullInfo->setExternalName(name);
+    Q_EMIT sessionAttributeChanged();
+}
+
+void VirtualSession::setExternalCurrentDir(const QString &dir)
+{
+    auto *nullInfo = static_cast<NullProcessInfo *>(_sessionProcessInfo);
+    nullInfo->setExternalCurrentDir(dir);
+    Q_EMIT sessionAttributeChanged();
+}
+
+void VirtualSession::setExternalPaneTitle(const QString &title)
+{
+    setSessionAttribute(WindowTitle, title);
 }
 
 void VirtualSession::run()

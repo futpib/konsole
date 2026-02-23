@@ -23,6 +23,7 @@ private Q_SLOTS:
     void testTmuxAttachContentRecovery();
     void testTmuxAttachComplexPromptRecovery();
     void testSplitterResizePropagatedToTmux();
+    void testTmuxPaneTitleInfo();
 };
 
 }

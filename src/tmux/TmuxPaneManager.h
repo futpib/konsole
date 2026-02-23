@@ -42,6 +42,8 @@ public:
     Session *sessionForPane(int paneId) const;
     QList<int> allPaneIds() const;
 
+    void queryPaneTitleInfo();
+
 Q_SIGNALS:
     void paneViewSizeChanged();
 

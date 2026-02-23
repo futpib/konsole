@@ -27,6 +27,9 @@ public:
      */
     explicit NullProcessInfo(int pid);
 
+    void setExternalName(const QString &name);
+    void setExternalCurrentDir(const QString &dir);
+
 protected:
     void readProcessInfo(int pid) override;
     bool readProcessName(int pid) override;
