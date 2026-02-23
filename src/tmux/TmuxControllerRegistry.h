@@ -10,13 +10,15 @@
 #include <QList>
 #include <QObject>
 
+#include "konsoleprivate_export.h"
+
 namespace Konsole
 {
 
 class TmuxController;
 class Session;
 
-class TmuxControllerRegistry : public QObject
+class KONSOLEPRIVATE_EXPORT TmuxControllerRegistry : public QObject
 {
     Q_OBJECT
 public:

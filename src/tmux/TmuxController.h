@@ -11,6 +11,8 @@
 #include <QMap>
 #include <QObject>
 
+#include "konsoleprivate_export.h"
+
 namespace Konsole
 {
 
@@ -23,7 +25,7 @@ class TmuxResizeCoordinator;
 class TmuxPaneStateRecovery;
 class ViewManager;
 
-class TmuxController : public QObject
+class KONSOLEPRIVATE_EXPORT TmuxController : public QObject
 {
     Q_OBJECT
 public:
