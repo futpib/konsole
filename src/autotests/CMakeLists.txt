@@ -35,6 +35,7 @@ ecm_add_tests(
     ProcessInfoTest.cpp
     ProfileTest.cpp
     ScreenTest.cpp
+    ScreenWindowTest.cpp
     ShellCommandTest.cpp
     TerminalCharacterDecoderTest.cpp
     Vt102EmulationTest.cpp
