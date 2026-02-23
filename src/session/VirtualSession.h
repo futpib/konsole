@@ -8,6 +8,7 @@
 #define VIRTUALSESSION_H
 
 #include "Session.h"
+#include "konsoleprivate_export.h"
 
 namespace Konsole
 {
@@ -19,7 +20,7 @@ namespace Konsole
  * Data is injected programmatically via injectData() rather
  * than coming from a shell process.
  */
-class VirtualSession : public Session
+class KONSOLEPRIVATE_EXPORT VirtualSession : public Session
 {
     Q_OBJECT
 public:

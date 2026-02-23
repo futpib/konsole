@@ -31,6 +31,9 @@ public:
     void pausePane(int paneId);
     void continuePane(int paneId);
 
+    void suppressOutput(int paneId);
+    void unsuppressOutput(int paneId);
+
     bool hasPane(int paneId) const;
     int paneIdForSession(Session *session) const;
     Session *sessionForPane(int paneId) const;
@@ -43,6 +46,7 @@ private:
     TmuxGateway *_gateway;
     QMap<int, Session *> _paneToSession;
     QSet<int> _pausedPanes;
+    QSet<int> _suppressedPanes;
     QMap<int, QByteArray> _pauseBuffers;
 };
 

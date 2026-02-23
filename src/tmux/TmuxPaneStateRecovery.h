@@ -9,6 +9,8 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPair>
+#include <QSet>
 
 namespace Konsole
 {
@@ -41,9 +43,15 @@ public:
     TmuxPaneStateRecovery(TmuxGateway *gateway, TmuxPaneManager *paneManager, QObject *parent = nullptr);
 
     void queryPaneStates(int windowId);
+    void setPaneDimensions(int paneId, int width, int height);
     void capturePaneHistory(int paneId);
     void applyPaneState(int paneId);
     void clear();
+
+    bool isPendingCapture(int paneId) const;
+
+Q_SIGNALS:
+    void paneRecoveryComplete(int paneId);
 
 private:
     void handlePaneStateResponse(int windowId, bool success, const QString &response);
@@ -52,6 +60,8 @@ private:
     TmuxGateway *_gateway;
     TmuxPaneManager *_paneManager;
     QHash<int, TmuxPaneState> _paneStates;
+    QHash<int, QPair<int, int>> _paneDimensions; // paneId → (width, height)
+    QSet<int> _pendingCapture;
 };
 
 } // namespace Konsole

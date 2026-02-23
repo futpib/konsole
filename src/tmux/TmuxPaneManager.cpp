@@ -68,6 +68,10 @@ void TmuxPaneManager::destroyAllPaneSessions()
 
 void TmuxPaneManager::deliverOutput(int paneId, const QByteArray &data)
 {
+    if (_suppressedPanes.contains(paneId)) {
+        return;
+    }
+
     if (_pausedPanes.contains(paneId)) {
         _pauseBuffers[paneId].append(data);
         return;
@@ -77,6 +81,16 @@ void TmuxPaneManager::deliverOutput(int paneId, const QByteArray &data)
     if (session) {
         session->injectData(data.constData(), data.size());
     }
+}
+
+void TmuxPaneManager::suppressOutput(int paneId)
+{
+    _suppressedPanes.insert(paneId);
+}
+
+void TmuxPaneManager::unsuppressOutput(int paneId)
+{
+    _suppressedPanes.remove(paneId);
 }
 
 void TmuxPaneManager::pausePane(int paneId)

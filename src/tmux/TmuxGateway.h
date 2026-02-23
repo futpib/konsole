@@ -15,13 +15,14 @@
 #include <optional>
 
 #include "TmuxNotification.h"
+#include "konsoleprivate_export.h"
 
 namespace Konsole
 {
 
 class Session;
 
-class TmuxGateway : public QObject
+class KONSOLEPRIVATE_EXPORT TmuxGateway : public QObject
 {
     Q_OBJECT
 public:
@@ -35,6 +36,7 @@ public:
     void detach();
 
     static std::optional<TmuxNotification> parseNotification(const QByteArray &line);
+    static QByteArray decodeVisEncoded(const QByteArray &encoded);
 
 Q_SIGNALS:
     void outputReceived(int paneId, const QByteArray &data);

@@ -46,6 +46,9 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
         refreshClientCount();
     });
 
+    // Unsuppress output when pane state recovery completes
+    connect(_stateRecovery, &TmuxPaneStateRecovery::paneRecoveryComplete, _paneManager, &TmuxPaneManager::unsuppressOutput);
+
     // Pane view size changes → resize coordinator
     connect(_paneManager, &TmuxPaneManager::paneViewSizeChanged, this, [this]() {
         bool suppress = (_state == State::ApplyingLayout || _state == State::Initializing);
@@ -139,6 +142,17 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         return;
     }
 
+    // Helper to collect leaf pane dimensions from layout tree
+    std::function<void(const TmuxLayoutNode &)> collectPaneDimensions = [&](const TmuxLayoutNode &node) {
+        if (node.type == TmuxLayoutNodeType::Leaf) {
+            _stateRecovery->setPaneDimensions(node.paneId, node.width, node.height);
+        } else {
+            for (const auto &child : node.children) {
+                collectPaneDimensions(child);
+            }
+        }
+    };
+
     // _state is already Initializing (which subsumes ApplyingLayout)
     const QStringList lines = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (const QString &line : lines) {
@@ -160,6 +174,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
 
         auto parsed = TmuxLayoutParser::parse(layout);
         if (parsed.has_value()) {
+            collectPaneDimensions(parsed.value());
             _layoutManager->applyLayout(windowId, parsed.value());
         }
     }
@@ -170,9 +185,12 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
         _stateRecovery->queryPaneStates(it.key());
     }
 
-    // Capture pane history for all panes
+    // Suppress %output delivery and capture pane history for all panes.
+    // %output arriving during capture would mix ANSI-escaped terminal output
+    // with the plain-text capture-pane content, producing garbled display.
     const auto &paneMap = _paneManager->paneToSession();
     for (auto it = paneMap.constBegin(); it != paneMap.constEnd(); ++it) {
+        _paneManager->suppressOutput(it.key());
         _stateRecovery->capturePaneHistory(it.key());
     }
 

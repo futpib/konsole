@@ -368,6 +368,82 @@ QByteArray TmuxGateway::decodeOctalEscapes(const QByteArray &encoded)
     return result;
 }
 
+QByteArray TmuxGateway::decodeVisEncoded(const QByteArray &encoded)
+{
+    QByteArray result;
+    result.reserve(encoded.size());
+
+    int i = 0;
+    while (i < encoded.size()) {
+        char c = encoded[i];
+        if (c == '\\' && i + 1 < encoded.size()) {
+            char next = encoded[i + 1];
+            // C-style escapes (VIS_CSTYLE)
+            if (next == 'n') {
+                result.append('\n');
+                i += 2;
+            } else if (next == 'r') {
+                result.append('\r');
+                i += 2;
+            } else if (next == 't') {
+                result.append('\t');
+                i += 2;
+            } else if (next == 'b') {
+                result.append('\b');
+                i += 2;
+            } else if (next == 'a') {
+                result.append('\a');
+                i += 2;
+            } else if (next == 'v') {
+                result.append('\v');
+                i += 2;
+            } else if (next == 'f') {
+                result.append('\f');
+                i += 2;
+            } else if (next == '0' && i + 3 < encoded.size() && encoded[i + 2] == '0' && encoded[i + 3] == '0') {
+                result.append('\0');
+                i += 4;
+            } else if (next == '\\') {
+                result.append('\\');
+                i += 2;
+            } else if (next >= '0' && next <= '7') {
+                // Octal escape: \ddd (skip \r from line driver)
+                int value = 0;
+                int j = i + 1;
+                int digits = 0;
+                while (digits < 3 && j < encoded.size()) {
+                    char d = encoded[j];
+                    if (d == '\r') {
+                        j++;
+                        continue;
+                    }
+                    if (d < '0' || d > '7') {
+                        break;
+                    }
+                    value = value * 8 + (d - '0');
+                    digits++;
+                    j++;
+                }
+                if (digits == 3) {
+                    result.append(static_cast<char>(value));
+                    i = j;
+                } else {
+                    result.append(c);
+                    i++;
+                }
+            } else {
+                result.append(c);
+                i++;
+            }
+        } else {
+            result.append(c);
+            i++;
+        }
+    }
+
+    return result;
+}
+
 int TmuxGateway::parsePaneId(const QByteArray &token)
 {
     // Format: %<number>

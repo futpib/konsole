@@ -9,6 +9,7 @@
 #include "TmuxGateway.h"
 #include "TmuxPaneManager.h"
 
+#include "Emulation.h"
 #include "session/VirtualSession.h"
 
 namespace Konsole
@@ -78,26 +79,60 @@ void TmuxPaneStateRecovery::handlePaneStateResponse(int windowId, bool success, 
     }
 }
 
+void TmuxPaneStateRecovery::setPaneDimensions(int paneId, int width, int height)
+{
+    _paneDimensions[paneId] = qMakePair(width, height);
+}
+
 void TmuxPaneStateRecovery::capturePaneHistory(int paneId)
 {
+    _pendingCapture.insert(paneId);
     _gateway->sendCommand(QStringLiteral("capture-pane -p -J -e -t %") + QString::number(paneId) + QStringLiteral(" -S -"),
                           [this, paneId](bool success, const QString &response) {
                               handleCapturePaneResponse(paneId, success, response);
                           });
 }
 
+bool TmuxPaneStateRecovery::isPendingCapture(int paneId) const
+{
+    return _pendingCapture.contains(paneId);
+}
+
 void TmuxPaneStateRecovery::handleCapturePaneResponse(int paneId, bool success, const QString &response)
 {
+    _pendingCapture.remove(paneId);
+
     if (!success || response.isEmpty()) {
+        Q_EMIT paneRecoveryComplete(paneId);
         return;
     }
 
     auto *session = qobject_cast<VirtualSession *>(_paneManager->sessionForPane(paneId));
     if (!session) {
+        Q_EMIT paneRecoveryComplete(paneId);
         return;
     }
 
-    const QStringList lines = response.split(QLatin1Char('\n'));
+    // Set the emulation screen size to match the tmux pane dimensions
+    // before injecting content, so long lines wrap at the correct column
+    if (_paneDimensions.contains(paneId)) {
+        auto dims = _paneDimensions.take(paneId);
+        session->emulation()->setImageSize(dims.second, dims.first);
+    }
+
+    // Clear any garbled content from %output that arrived before the
+    // emulation was sized correctly
+    static const char clearSeq[] = "\033[2J\033[H";
+    session->injectData(clearSeq, sizeof(clearSeq) - 1);
+
+    QStringList lines = response.split(QLatin1Char('\n'));
+
+    // Trim trailing empty lines — capture-pane pads to the pane height
+    // which would push real content off-screen
+    while (!lines.isEmpty() && lines.last().trimmed().isEmpty()) {
+        lines.removeLast();
+    }
+
     for (int i = 0; i < lines.size(); ++i) {
         QByteArray lineData = lines[i].toUtf8();
         if (i < lines.size() - 1) {
@@ -107,6 +142,7 @@ void TmuxPaneStateRecovery::handleCapturePaneResponse(int paneId, bool success, 
     }
 
     applyPaneState(paneId);
+    Q_EMIT paneRecoveryComplete(paneId);
 }
 
 void TmuxPaneStateRecovery::applyPaneState(int paneId)
