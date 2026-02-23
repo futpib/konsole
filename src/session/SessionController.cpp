@@ -1925,6 +1925,11 @@ void SessionController::clearHistory()
     session()->clearHistory();
     view()->updateImage(); // To reset view scrollbar
     view()->repaint();
+
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(session());
+    if (controller) {
+        controller->requestClearHistory(session());
+    }
 }
 
 void SessionController::clearHistoryAndReset()

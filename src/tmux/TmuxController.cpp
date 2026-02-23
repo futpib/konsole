@@ -143,6 +143,14 @@ void TmuxController::requestRenameWindow(int windowId, const QString &name)
     _gateway->sendCommand(TmuxCommand(QStringLiteral("rename-window")).windowTarget(windowId).quotedArg(name).build());
 }
 
+void TmuxController::requestClearHistory(Session *session)
+{
+    int paneId = _paneManager->paneIdForSession(session);
+    if (paneId >= 0) {
+        _gateway->sendCommand(TmuxCommand(QStringLiteral("clear-history")).paneTarget(paneId).build());
+    }
+}
+
 void TmuxController::requestDetach()
 {
     _gateway->detach();
