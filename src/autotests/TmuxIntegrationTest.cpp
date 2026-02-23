@@ -8,6 +8,7 @@
 
 #include <QPointer>
 #include <QProcess>
+#include <QResizeEvent>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTest>
@@ -21,6 +22,9 @@
 #include "../session/Session.h"
 #include "../session/SessionManager.h"
 #include "../terminalDisplay/TerminalDisplay.h"
+#include "../tmux/TmuxLayoutManager.h"
+#include "../tmux/TmuxLayoutParser.h"
+#include "../tmux/TmuxPaneManager.h"
 #include "../widgets/ViewContainer.h"
 #include "../widgets/ViewSplitter.h"
 
@@ -477,6 +481,175 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
     QProcess tmuxKill;
     tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
     tmuxKill.waitForFinished(5000);
+}
+
+void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
+{
+    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // Create a detached tmux session with two horizontal panes
+    const QString sessionName = QStringLiteral("konsole-resize-test-%1").arg(QCoreApplication::applicationPid());
+
+    QProcess tmuxNewSession;
+    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
+                                    QStringLiteral("-x"), QStringLiteral("160"), QStringLiteral("-y"), QStringLiteral("40"),
+                                    QStringLiteral("sleep 60")});
+    QVERIFY(tmuxNewSession.waitForFinished(5000));
+    QCOMPARE(tmuxNewSession.exitCode(), 0);
+
+    QProcess tmuxSplit;
+    tmuxSplit.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-h"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 60")});
+    QVERIFY(tmuxSplit.waitForFinished(5000));
+    QCOMPARE(tmuxSplit.exitCode(), 0);
+
+    // Query initial pane sizes
+    QProcess tmuxListPanes;
+    tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), sessionName,
+                                   QStringLiteral("-F"), QStringLiteral("#{pane_width}")});
+    QVERIFY(tmuxListPanes.waitForFinished(5000));
+    QCOMPARE(tmuxListPanes.exitCode(), 0);
+    QStringList initialWidths = QString::fromUtf8(tmuxListPanes.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+    QCOMPARE(initialWidths.size(), 2);
+    int initialWidth0 = initialWidths[0].toInt();
+    int initialWidth1 = initialWidths[1].toInt();
+    qDebug() << "Initial tmux pane widths:" << initialWidth0 << initialWidth1;
+
+    // Attach Konsole
+    auto *mw = new MainWindow();
+    QPointer<MainWindow> mwGuard(mw);
+    ViewManager *vm = mw->viewManager();
+
+    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
+    profile->setProperty(Profile::Command, tmuxPath);
+    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
+
+    Session *gatewaySession = vm->createSession(profile, QString());
+    auto *view = vm->createView(gatewaySession);
+    vm->activeContainer()->addView(view);
+    gatewaySession->run();
+
+    QPointer<TabbedViewContainer> container = vm->activeContainer();
+    QVERIFY(container);
+    QCOMPARE(container->count(), 1);
+
+    // Wait for tmux control mode to create virtual pane tab(s)
+    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+
+    // Find the split pane splitter
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < container->count(); ++i) {
+        auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children");
+    QCOMPARE(paneSplitter->orientation(), Qt::Horizontal);
+
+    auto *leftDisplay = qobject_cast<TerminalDisplay *>(paneSplitter->widget(0));
+    auto *rightDisplay = qobject_cast<TerminalDisplay *>(paneSplitter->widget(1));
+    QVERIFY(leftDisplay);
+    QVERIFY(rightDisplay);
+
+    // Read current splitter sizes and display dimensions
+    QList<int> sizes = paneSplitter->sizes();
+    QCOMPARE(sizes.size(), 2);
+    qDebug() << "Initial Konsole splitter sizes:" << sizes;
+    qDebug() << "Initial display sizes:" << leftDisplay->size() << rightDisplay->size()
+             << "columns:" << leftDisplay->columns() << rightDisplay->columns();
+
+    // Move the splitter: make left pane significantly larger (3/4 vs 1/4).
+    // setSizes alone may not trigger real layout in offscreen platform,
+    // so we also explicitly resize the display widgets.
+    int total = sizes[0] + sizes[1];
+    int newLeft = total * 3 / 4;
+    int newRight = total - newLeft;
+    paneSplitter->setSizes({newLeft, newRight});
+
+    // Force display widgets to the new pixel sizes and send resize events
+    int displayHeight = leftDisplay->height();
+    leftDisplay->resize(newLeft, displayHeight);
+    rightDisplay->resize(newRight, displayHeight);
+    QResizeEvent leftResizeEvent(QSize(newLeft, displayHeight), leftDisplay->size());
+    QResizeEvent rightResizeEvent(QSize(newRight, displayHeight), rightDisplay->size());
+    QCoreApplication::sendEvent(leftDisplay, &leftResizeEvent);
+    QCoreApplication::sendEvent(rightDisplay, &rightResizeEvent);
+    QCoreApplication::processEvents();
+
+    qDebug() << "After resize - display sizes:" << leftDisplay->size() << rightDisplay->size()
+             << "columns:" << leftDisplay->columns() << rightDisplay->columns();
+
+    // Verify the resize actually produced different column counts
+    QVERIFY2(leftDisplay->columns() != rightDisplay->columns(),
+             qPrintable(QStringLiteral("Expected different column counts but both are %1").arg(leftDisplay->columns())));
+
+    // Trigger splitterMoved signal (setSizes doesn't emit it automatically)
+    Q_EMIT paneSplitter->splitterMoved(newLeft, 1);
+
+    // Read expected sizes from terminal displays (what buildLayoutNode will use)
+    int expectedLeftWidth = leftDisplay->columns();
+    int expectedRightWidth = rightDisplay->columns();
+    int expectedLeftHeight = leftDisplay->lines();
+    int expectedRightHeight = rightDisplay->lines();
+    int expectedWindowWidth = expectedLeftWidth + 1 + expectedRightWidth; // +1 for separator
+    int expectedWindowHeight = qMax(expectedLeftHeight, expectedRightHeight);
+    qDebug() << "Expected pane sizes:" << expectedLeftWidth << "x" << expectedLeftHeight
+             << "and" << expectedRightWidth << "x" << expectedRightHeight
+             << ", window:" << expectedWindowWidth << "x" << expectedWindowHeight;
+
+    // Wait for the command to propagate to tmux and verify exact sizes
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_width} #{pane_height}")});
+        check.waitForFinished(3000);
+        QStringList paneLines = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+        if (paneLines.size() != 2) return false;
+        QStringList pane0 = paneLines[0].split(QLatin1Char(' '));
+        QStringList pane1 = paneLines[1].split(QLatin1Char(' '));
+        if (pane0.size() != 2 || pane1.size() != 2) return false;
+        int w0 = pane0[0].toInt();
+        int h0 = pane0[1].toInt();
+        int w1 = pane1[0].toInt();
+        int h1 = pane1[1].toInt();
+        qDebug() << "Current tmux pane sizes:" << w0 << "x" << h0 << "and" << w1 << "x" << h1;
+        return w0 == expectedLeftWidth && w1 == expectedRightWidth
+            && h0 == expectedWindowHeight && h1 == expectedWindowHeight;
+    }(), 10000);
+
+    // Also verify tmux window size matches
+    {
+        QProcess checkWindow;
+        checkWindow.start(tmuxPath, {QStringLiteral("list-windows"), QStringLiteral("-t"), sessionName,
+                                     QStringLiteral("-F"), QStringLiteral("#{window_width} #{window_height}")});
+        QVERIFY(checkWindow.waitForFinished(3000));
+        QStringList windowSize = QString::fromUtf8(checkWindow.readAllStandardOutput()).trimmed().split(QLatin1Char(' '));
+        QCOMPARE(windowSize.size(), 2);
+        int windowWidth = windowSize[0].toInt();
+        int windowHeight = windowSize[1].toInt();
+        qDebug() << "Tmux window size:" << windowWidth << "x" << windowHeight
+                 << "(expected:" << expectedWindowWidth << "x" << expectedWindowHeight << ")";
+        QCOMPARE(windowWidth, expectedWindowWidth);
+        QCOMPARE(windowHeight, expectedWindowHeight);
+    }
+
+    // Wait for any pending layout-change callbacks to finish
+    QTest::qWait(500);
+
+    // Kill the tmux session first to avoid layout-change during teardown
+    QProcess tmuxKill;
+    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
+    tmuxKill.waitForFinished(5000);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
+    delete mwGuard.data();
 }
 
 QTEST_MAIN(TmuxIntegrationTest)

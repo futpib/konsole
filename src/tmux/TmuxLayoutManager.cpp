@@ -25,6 +25,83 @@ TmuxLayoutManager::TmuxLayoutManager(TmuxPaneManager *paneManager, ViewManager *
 {
 }
 
+TmuxLayoutNode TmuxLayoutManager::buildLayoutNode(ViewSplitter *splitter, TmuxPaneManager *paneManager)
+{
+    // Single-child splitter: unwrap and recurse into the child
+    if (splitter->count() == 1) {
+        auto *childDisplay = qobject_cast<TerminalDisplay *>(splitter->widget(0));
+        if (childDisplay) {
+            TmuxLayoutNode leaf;
+            leaf.type = TmuxLayoutNodeType::Leaf;
+            leaf.paneId = paneManager->paneIdForDisplay(childDisplay);
+            leaf.width = childDisplay->columns();
+            leaf.height = childDisplay->lines();
+            leaf.xOffset = 0;
+            leaf.yOffset = 0;
+            return leaf;
+        }
+        auto *childSplitter = qobject_cast<ViewSplitter *>(splitter->widget(0));
+        if (childSplitter) {
+            return buildLayoutNode(childSplitter, paneManager);
+        }
+    }
+
+    TmuxLayoutNode node;
+    node.type = (splitter->orientation() == Qt::Horizontal) ? TmuxLayoutNodeType::HSplit : TmuxLayoutNodeType::VSplit;
+    bool horizontal = (node.type == TmuxLayoutNodeType::HSplit);
+
+    int offset = 0;
+    int maxCross = 0;
+    for (int i = 0; i < splitter->count(); ++i) {
+        TmuxLayoutNode child;
+        auto *display = qobject_cast<TerminalDisplay *>(splitter->widget(i));
+        if (display) {
+            child.type = TmuxLayoutNodeType::Leaf;
+            child.paneId = paneManager->paneIdForDisplay(display);
+            child.width = display->columns();
+            child.height = display->lines();
+        } else if (auto *childSplitter = qobject_cast<ViewSplitter *>(splitter->widget(i))) {
+            child = buildLayoutNode(childSplitter, paneManager);
+        } else {
+            continue;
+        }
+
+        if (horizontal) {
+            child.xOffset = offset;
+            child.yOffset = 0;
+            offset += child.width + 1; // +1 for separator
+            maxCross = qMax(maxCross, child.height);
+        } else {
+            child.xOffset = 0;
+            child.yOffset = offset;
+            offset += child.height + 1; // +1 for separator
+            maxCross = qMax(maxCross, child.width);
+        }
+
+        node.children.append(child);
+    }
+
+    if (horizontal) {
+        node.width = offset > 0 ? offset - 1 : 0; // subtract last separator
+        node.height = maxCross;
+        // tmux requires all children in an HSplit to have the same height as parent
+        for (auto &child : node.children) {
+            child.height = maxCross;
+        }
+    } else {
+        node.width = maxCross;
+        node.height = offset > 0 ? offset - 1 : 0;
+        // tmux requires all children in a VSplit to have the same width as parent
+        for (auto &child : node.children) {
+            child.width = maxCross;
+        }
+    }
+    node.xOffset = 0;
+    node.yOffset = 0;
+
+    return node;
+}
+
 int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
 {
     TabbedViewContainer *container = _viewManager->activeContainer();

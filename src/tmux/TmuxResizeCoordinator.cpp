@@ -8,6 +8,8 @@
 
 #include "TmuxController.h"
 #include "TmuxGateway.h"
+#include "TmuxLayoutManager.h"
+#include "TmuxLayoutParser.h"
 #include "TmuxPaneManager.h"
 
 #include "ViewManager.h"
@@ -20,11 +22,12 @@
 namespace Konsole
 {
 
-TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxController *controller, TmuxPaneManager *paneManager, ViewManager *viewManager, QObject *parent)
+TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxController *controller, TmuxPaneManager *paneManager, TmuxLayoutManager *layoutManager, ViewManager *viewManager, QObject *parent)
     : QObject(parent)
     , _gateway(gateway)
     , _controller(controller)
     , _paneManager(paneManager)
+    , _layoutManager(layoutManager)
     , _viewManager(viewManager)
 {
     _resizeTimer.setSingleShot(true);
@@ -49,35 +52,31 @@ void TmuxResizeCoordinator::onPaneViewSizeChanged(bool suppressResize)
 
 void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
 {
-    for (int i = 0; i < splitter->count(); ++i) {
-        QWidget *widget = splitter->widget(i);
+    ViewSplitter *topLevel = splitter->getToplevelSplitter();
+    TmuxLayoutNode node = TmuxLayoutManager::buildLayoutNode(topLevel, _paneManager);
+    QString layoutString = TmuxLayoutParser::serialize(node);
 
-        while (auto *sub = qobject_cast<ViewSplitter *>(widget)) {
-            if (sub->count() == 0) {
-                break;
-            }
-            widget = sub->widget(0);
-        }
+    // Find window ID for this splitter's tab
+    TabbedViewContainer *container = _viewManager->activeContainer();
+    if (!container) {
+        return;
+    }
+    int tabIndex = container->indexOf(topLevel);
 
-        auto *display = qobject_cast<TerminalDisplay *>(widget);
-        if (!display) {
-            continue;
-        }
-
-        int paneId = _paneManager->paneIdForDisplay(display);
-        if (paneId < 0) {
-            continue;
-        }
-
-        int cols = display->columns();
-        int lines = display->lines();
-        if (cols > 0 && lines > 0) {
-            QString cmd = QStringLiteral("resize-pane -t %") + QString::number(paneId)
-                + QStringLiteral(" -x ") + QString::number(cols)
-                + QStringLiteral(" -y ") + QString::number(lines);
-            _gateway->sendCommand(cmd);
+    const auto &windowToTab = _controller->windowToTabIndex();
+    int windowId = -1;
+    for (auto it = windowToTab.constBegin(); it != windowToTab.constEnd(); ++it) {
+        if (it.value() == tabIndex) {
+            windowId = it.key();
+            break;
         }
     }
+
+    if (windowId < 0) {
+        return;
+    }
+
+    _gateway->sendCommand(QStringLiteral("select-layout -t @%1 '%2'").arg(windowId).arg(layoutString));
 }
 
 void TmuxResizeCoordinator::sendClientSize()

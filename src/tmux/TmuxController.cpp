@@ -25,7 +25,7 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
     , _viewManager(viewManager)
     , _paneManager(new TmuxPaneManager(gateway, this))
     , _layoutManager(new TmuxLayoutManager(_paneManager, viewManager, this))
-    , _resizeCoordinator(new TmuxResizeCoordinator(gateway, this, _paneManager, viewManager, this))
+    , _resizeCoordinator(new TmuxResizeCoordinator(gateway, this, _paneManager, _layoutManager, viewManager, this))
     , _stateRecovery(new TmuxPaneStateRecovery(gateway, _paneManager, this))
 {
     // Gateway → controller slots
@@ -252,6 +252,14 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
 {
     Q_UNUSED(visibleLayout)
     Q_UNUSED(zoomed)
+
+    // Skip layout-change notifications while dragging a splitter — they are
+    // echo-backs of our own select-layout commands and would create a feedback
+    // loop (select-layout → %layout-change → applyLayout → setSizes →
+    // splitterMoved → select-layout …).
+    if (_state == State::Dragging) {
+        return;
+    }
 
     auto parsed = TmuxLayoutParser::parse(layout);
     if (parsed.has_value()) {

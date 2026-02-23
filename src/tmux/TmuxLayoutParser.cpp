@@ -156,4 +156,44 @@ std::optional<TmuxLayoutNode> TmuxLayoutParser::parseNode(const QString &s, int 
     return node;
 }
 
+uint16_t TmuxLayoutParser::checksum(const QByteArray &body)
+{
+    uint16_t csum = 0;
+    for (char c : body) {
+        csum = (csum >> 1) + ((csum & 1) << 15);
+        csum += static_cast<unsigned char>(c);
+    }
+    return csum;
+}
+
+QString TmuxLayoutParser::serialize(const TmuxLayoutNode &root)
+{
+    QString body;
+    serializeNode(root, body);
+    uint16_t csum = checksum(body.toLatin1());
+    return QStringLiteral("%1,%2").arg(csum, 4, 16, QLatin1Char('0')).arg(body);
+}
+
+void TmuxLayoutParser::serializeNode(const TmuxLayoutNode &node, QString &output)
+{
+    output += QString::number(node.width) + QLatin1Char('x') + QString::number(node.height)
+        + QLatin1Char(',') + QString::number(node.xOffset)
+        + QLatin1Char(',') + QString::number(node.yOffset);
+
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        output += QLatin1Char(',') + QString::number(node.paneId);
+    } else {
+        QChar open = (node.type == TmuxLayoutNodeType::HSplit) ? QLatin1Char('{') : QLatin1Char('[');
+        QChar close = (node.type == TmuxLayoutNodeType::HSplit) ? QLatin1Char('}') : QLatin1Char(']');
+        output += open;
+        for (int i = 0; i < node.children.size(); ++i) {
+            if (i > 0) {
+                output += QLatin1Char(',');
+            }
+            serializeNode(node.children[i], output);
+        }
+        output += close;
+    }
+}
+
 } // namespace Konsole

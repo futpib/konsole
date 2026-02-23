@@ -27,6 +27,7 @@ public:
     TmuxLayoutManager(TmuxPaneManager *paneManager, ViewManager *viewManager, QObject *parent = nullptr);
 
     int applyLayout(int tabIndex, const TmuxLayoutNode &layout);
+    static TmuxLayoutNode buildLayoutNode(ViewSplitter *splitter, TmuxPaneManager *paneManager);
 
 Q_SIGNALS:
     void splitterDragStarted();

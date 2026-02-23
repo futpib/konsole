@@ -12,6 +12,8 @@
 
 #include <optional>
 
+#include "konsoleprivate_export.h"
+
 namespace Konsole
 {
 
@@ -27,15 +29,18 @@ struct TmuxLayoutNode {
     QList<TmuxLayoutNode> children; // split only
 };
 
-class TmuxLayoutParser
+class KONSOLEPRIVATE_EXPORT TmuxLayoutParser
 {
 public:
     static std::optional<TmuxLayoutNode> parse(const QString &layoutString);
+    static QString serialize(const TmuxLayoutNode &root);
+    static uint16_t checksum(const QByteArray &body);
 
 private:
     static std::optional<TmuxLayoutNode> parseNode(const QString &s, int &pos);
     static bool parseDimensions(const QString &s, int &pos, TmuxLayoutNode &node);
     static bool parseInt(const QString &s, int &pos, int &value);
+    static void serializeNode(const TmuxLayoutNode &node, QString &output);
 };
 
 } // namespace Konsole
