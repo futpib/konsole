@@ -533,7 +533,7 @@ private:
     NavigationVisibility _navigationVisibility;
     int _managerId;
     static int lastManagerId;
-    QList<TerminalDisplay *> _terminalDisplayHistory;
+    QList<QPointer<TerminalDisplay>> _terminalDisplayHistory;
     int _terminalDisplayHistoryIndex;
 
     // List of actions that should only be enabled when there are multiple view

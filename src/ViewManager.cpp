@@ -426,7 +426,13 @@ void ViewManager::switchToView(int index)
 
 void ViewManager::switchToTerminalDisplay(Konsole::TerminalDisplay *terminalDisplay)
 {
+    if (!terminalDisplay) {
+        return;
+    }
     auto splitter = qobject_cast<ViewSplitter *>(terminalDisplay->parentWidget());
+    if (!splitter) {
+        return;
+    }
     auto toplevelSplitter = splitter->getToplevelSplitter();
 
     // Focus the TermialDisplay
@@ -760,7 +766,7 @@ void ViewManager::focusAnotherTerminal(ViewSplitter *toplevelSplitter)
 
     if (tabTterminalDisplays.count() > 1) {
         // Give focus to the last used terminal in this tab
-        for (const auto *historyItem : std::as_const(_terminalDisplayHistory)) {
+        for (const auto &historyItem : std::as_const(_terminalDisplayHistory)) {
             for (auto *terminalDisplay : std::as_const(tabTterminalDisplays)) {
                 if (terminalDisplay == historyItem) {
                     terminalDisplay->setFocus(Qt::OtherFocusReason);
@@ -1802,6 +1808,9 @@ void ViewManager::updateTerminalDisplayHistory(TerminalDisplay *terminalDisplay,
             // (i.e. when Ctrl-Tab has been released)
             terminalDisplay = _terminalDisplayHistory[_terminalDisplayHistoryIndex];
             _terminalDisplayHistoryIndex = -1;
+            if (!terminalDisplay) {
+                return;
+            }
         } else {
             return;
         }
