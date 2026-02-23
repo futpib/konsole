@@ -64,14 +64,7 @@ void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
             continue;
         }
 
-        int paneId = -1;
-        const auto &paneMap = _paneManager->paneToSession();
-        for (auto it = paneMap.constBegin(); it != paneMap.constEnd(); ++it) {
-            if (it.value()->views().contains(display)) {
-                paneId = it.key();
-                break;
-            }
-        }
+        int paneId = _paneManager->paneIdForDisplay(display);
         if (paneId < 0) {
             continue;
         }

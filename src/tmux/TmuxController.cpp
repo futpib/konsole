@@ -39,12 +39,8 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
     connect(_gateway, &TmuxGateway::exitReceived, this, &TmuxController::onExit);
     connect(_gateway, &TmuxGateway::panePaused, _paneManager, &TmuxPaneManager::pausePane);
     connect(_gateway, &TmuxGateway::paneContinued, _paneManager, &TmuxPaneManager::continuePane);
-    connect(_gateway, &TmuxGateway::clientSessionChanged, this, [this]() {
-        refreshClientCount();
-    });
-    connect(_gateway, &TmuxGateway::clientDetached, this, [this]() {
-        refreshClientCount();
-    });
+    connect(_gateway, &TmuxGateway::clientSessionChanged, this, &TmuxController::refreshClientCount);
+    connect(_gateway, &TmuxGateway::clientDetached, this, &TmuxController::refreshClientCount);
 
     // Unsuppress output when pane state recovery completes
     connect(_stateRecovery, &TmuxPaneStateRecovery::paneRecoveryComplete, _paneManager, &TmuxPaneManager::unsuppressOutput);
@@ -241,10 +237,10 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
     // Suppress %output delivery and capture pane history for all panes.
     // %output arriving during capture would mix ANSI-escaped terminal output
     // with the plain-text capture-pane content, producing garbled display.
-    const auto &paneMap = _paneManager->paneToSession();
-    for (auto it = paneMap.constBegin(); it != paneMap.constEnd(); ++it) {
-        _paneManager->suppressOutput(it.key());
-        _stateRecovery->capturePaneHistory(it.key());
+    _paneManager->suppressAllOutput();
+    const auto paneIds = _paneManager->allPaneIds();
+    for (int paneId : paneIds) {
+        _stateRecovery->capturePaneHistory(paneId);
     }
 
     setState(State::Idle);

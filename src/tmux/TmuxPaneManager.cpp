@@ -9,6 +9,7 @@
 #include "TmuxGateway.h"
 
 #include "Emulation.h"
+#include "session/Session.h"
 #include "profile/ProfileManager.h"
 #include "session/SessionManager.h"
 #include "session/VirtualSession.h"
@@ -88,6 +89,13 @@ void TmuxPaneManager::suppressOutput(int paneId)
     _suppressedPanes.insert(paneId);
 }
 
+void TmuxPaneManager::suppressAllOutput()
+{
+    for (auto it = _paneToSession.constBegin(); it != _paneToSession.constEnd(); ++it) {
+        _suppressedPanes.insert(it.key());
+    }
+}
+
 void TmuxPaneManager::unsuppressOutput(int paneId)
 {
     _suppressedPanes.remove(paneId);
@@ -129,14 +137,24 @@ int TmuxPaneManager::paneIdForSession(Session *session) const
     return -1;
 }
 
+int TmuxPaneManager::paneIdForDisplay(TerminalDisplay *display) const
+{
+    for (auto it = _paneToSession.constBegin(); it != _paneToSession.constEnd(); ++it) {
+        if (it.value()->views().contains(display)) {
+            return it.key();
+        }
+    }
+    return -1;
+}
+
 Session *TmuxPaneManager::sessionForPane(int paneId) const
 {
     return _paneToSession.value(paneId, nullptr);
 }
 
-const QMap<int, Session *> &TmuxPaneManager::paneToSession() const
+QList<int> TmuxPaneManager::allPaneIds() const
 {
-    return _paneToSession;
+    return _paneToSession.keys();
 }
 
 } // namespace Konsole

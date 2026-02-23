@@ -145,12 +145,9 @@ void TmuxLayoutManager::collectDisplays(ViewSplitter *splitter, QMap<int, Termin
     for (int i = 0; i < splitter->count(); ++i) {
         auto *display = qobject_cast<TerminalDisplay *>(splitter->widget(i));
         if (display) {
-            const auto &paneMap = _paneManager->paneToSession();
-            for (auto it = paneMap.constBegin(); it != paneMap.constEnd(); ++it) {
-                if (it.value()->views().contains(display)) {
-                    displayMap[it.key()] = display;
-                    break;
-                }
+            int paneId = _paneManager->paneIdForDisplay(display);
+            if (paneId >= 0) {
+                displayMap[paneId] = display;
             }
         } else if (auto *childSplitter = qobject_cast<ViewSplitter *>(splitter->widget(i))) {
             collectDisplays(childSplitter, displayMap);

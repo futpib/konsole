@@ -15,6 +15,7 @@ namespace Konsole
 {
 
 class Session;
+class TerminalDisplay;
 class TmuxGateway;
 
 class TmuxPaneManager : public QObject
@@ -32,12 +33,14 @@ public:
     void continuePane(int paneId);
 
     void suppressOutput(int paneId);
+    void suppressAllOutput();
     void unsuppressOutput(int paneId);
 
     bool hasPane(int paneId) const;
     int paneIdForSession(Session *session) const;
+    int paneIdForDisplay(TerminalDisplay *display) const;
     Session *sessionForPane(int paneId) const;
-    const QMap<int, Session *> &paneToSession() const;
+    QList<int> allPaneIds() const;
 
 Q_SIGNALS:
     void paneViewSizeChanged();
