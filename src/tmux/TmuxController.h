@@ -42,6 +42,8 @@ public:
     void requestSplitPane(int paneId, Qt::Orientation orientation);
     void requestClosePane(int paneId);
     void requestCloseWindow(int windowId);
+    void requestSwapPane(int srcPaneId, int dstPaneId);
+    void requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientation orientation, bool before);
     void requestDetach();
 
     bool hasPane(int paneId) const;

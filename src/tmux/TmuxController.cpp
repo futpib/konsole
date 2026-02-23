@@ -107,6 +107,23 @@ void TmuxController::requestCloseWindow(int windowId)
     _gateway->sendCommand(QStringLiteral("kill-window -t @") + QString::number(windowId));
 }
 
+void TmuxController::requestSwapPane(int srcPaneId, int dstPaneId)
+{
+    _gateway->sendCommand(QStringLiteral("swap-pane -s %%%1 -t %%%2").arg(srcPaneId).arg(dstPaneId));
+}
+
+void TmuxController::requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientation orientation, bool before)
+{
+    QString cmd = QStringLiteral("move-pane -s %%%1 -t %%%2").arg(srcPaneId).arg(dstPaneId);
+    if (orientation == Qt::Horizontal) {
+        cmd += QStringLiteral(" -h");
+    }
+    if (before) {
+        cmd += QStringLiteral(" -b");
+    }
+    _gateway->sendCommand(cmd);
+}
+
 void TmuxController::requestDetach()
 {
     _gateway->detach();

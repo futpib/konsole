@@ -18,9 +18,12 @@
 #include <memory>
 
 // Konsole
+#include "session/SessionController.h"
 #include "terminalDisplay/TerminalDisplay.h"
 #include "terminalDisplay/TerminalFonts.h"
 #include "terminalDisplay/TerminalScrollBar.h"
+#include "tmux/TmuxController.h"
+#include "tmux/TmuxControllerRegistry.h"
 #include "widgets/ViewContainer.h"
 
 using Konsole::TerminalDisplay;
@@ -503,6 +506,27 @@ QString ViewSplitter::getChildWidgetsLayout()
 
 namespace
 {
+struct TmuxDragInfo {
+    Konsole::TmuxController *controller = nullptr;
+    int paneId = -1;
+    int windowId = -1;
+};
+
+TmuxDragInfo tmuxInfoForDisplay(TerminalDisplay *display)
+{
+    TmuxDragInfo info;
+    if (!display || !display->sessionController() || display->sessionController()->session().isNull()) {
+        return info;
+    }
+    auto session = display->sessionController()->session();
+    info.controller = Konsole::TmuxControllerRegistry::instance()->controllerForSession(session);
+    if (info.controller) {
+        info.paneId = info.controller->paneIdForSession(session);
+        info.windowId = info.controller->windowIdForPane(info.paneId);
+    }
+    return info;
+}
+
 TerminalDisplay *currentDragTarget = nullptr;
 }
 
@@ -532,6 +556,23 @@ void Konsole::ViewSplitter::dragMoveEvent(QDragMoveEvent *ev)
         if (terminal == ev->source()) {
             return;
         }
+
+        // Block DnD across tmux/non-tmux boundary or across different controllers
+        auto *source = qobject_cast<TerminalDisplay *>(ev->source());
+        if (source) {
+            auto srcInfo = tmuxInfoForDisplay(source);
+            auto dstInfo = tmuxInfoForDisplay(terminal);
+            bool srcIsTmux = srcInfo.controller != nullptr;
+            bool dstIsTmux = dstInfo.controller != nullptr;
+            if (srcIsTmux != dstIsTmux || (srcIsTmux && dstIsTmux && srcInfo.controller != dstInfo.controller)) {
+                if (currentDragTarget != nullptr) {
+                    currentDragTarget->hideDragTarget();
+                    currentDragTarget = nullptr;
+                }
+                return;
+            }
+        }
+
         currentDragTarget = terminal;
         auto localPos = currentDragTarget->mapFromParent(ev->position().toPoint());
         currentDragTarget->showDragTarget(localPos);
@@ -554,10 +595,29 @@ void Konsole::ViewSplitter::dropEvent(QDropEvent *ev)
             return;
         }
         if (currentDragTarget != nullptr) {
-            m_blockPropagatedDeletion = true;
-
             currentDragTarget->hideDragTarget();
             auto source = qobject_cast<TerminalDisplay *>(ev->source());
+
+            // Route tmux pane drops through tmux commands
+            auto srcInfo = tmuxInfoForDisplay(source);
+            auto dstInfo = tmuxInfoForDisplay(currentDragTarget);
+            if (srcInfo.controller && dstInfo.controller && srcInfo.controller == dstInfo.controller) {
+                const auto droppedEdge = currentDragTarget->droppedEdge();
+                bool before = droppedEdge == Qt::LeftEdge || droppedEdge == Qt::TopEdge;
+                Qt::Orientation orientation = droppedEdge == Qt::LeftEdge || droppedEdge == Qt::RightEdge ? Qt::Horizontal : Qt::Vertical;
+
+                if (srcInfo.windowId == dstInfo.windowId) {
+                    srcInfo.controller->requestSwapPane(srcInfo.paneId, dstInfo.paneId);
+                } else {
+                    srcInfo.controller->requestMovePane(srcInfo.paneId, dstInfo.paneId, orientation, before);
+                }
+                currentDragTarget = nullptr;
+                return;
+            }
+
+            // Non-tmux: local widget reparenting
+            m_blockPropagatedDeletion = true;
+
             source->setVisible(false);
             source->setParent(nullptr);
 
