@@ -36,10 +36,13 @@ public:
     void requestNewWindow();
     void requestSplitPane(int paneId, Qt::Orientation orientation);
     void requestClosePane(int paneId);
+    void requestCloseWindow(int windowId);
     void requestDetach();
 
     bool hasPane(int paneId) const;
     int paneIdForSession(Session *session) const;
+    int windowIdForPane(int paneId) const;
+    int windowCount() const;
 
     Session *gatewaySession() const;
     TmuxGateway *gateway() const;

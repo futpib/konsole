@@ -15,6 +15,7 @@ namespace Konsole
 {
 
 class Session;
+class TerminalDisplay;
 class TmuxGateway;
 class TmuxLayoutNode;
 class TmuxPaneManager;
@@ -34,6 +35,9 @@ public:
     const QMap<int, int> &windowToTabIndex() const;
     const QMap<int, QList<int>> &windowPanes() const;
 
+    int windowIdForPane(int paneId) const;
+    int windowCount() const;
+
     void setDragging(bool dragging);
 
 Q_SIGNALS:
@@ -41,7 +45,8 @@ Q_SIGNALS:
     void splitterDragFinished();
 
 private:
-    void buildSplitterTree(ViewSplitter *splitter, const TmuxLayoutNode &node);
+    void collectDisplays(ViewSplitter *splitter, QMap<int, TerminalDisplay *> &displayMap);
+    void buildSplitterTree(ViewSplitter *splitter, const TmuxLayoutNode &node, QMap<int, TerminalDisplay *> &existingDisplays);
     bool updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node);
     void connectSplitterSignals(ViewSplitter *splitter);
     void onSplitterMoved(ViewSplitter *splitter);

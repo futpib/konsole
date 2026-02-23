@@ -234,6 +234,7 @@ private Q_SLOTS:
     void activateView(const QString &xdgActivationToken);
 
 private:
+    void closeTmuxTab(const QList<TerminalDisplay *> &terminals);
     void forgetView();
 
     struct TabIconState {

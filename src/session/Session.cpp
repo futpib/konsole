@@ -427,8 +427,9 @@ void Session::removeView(TerminalDisplay *widget)
     // disconnect state change signals emitted by emulation
     disconnect(_emulation, nullptr, widget, nullptr);
 
-    // close the session automatically when the last view is removed
-    if (_views.count() == 0) {
+    // Close the session automatically when the last view is removed,
+    // unless the session lifecycle is managed externally (e.g. by TmuxPaneManager).
+    if (_views.count() == 0 && _paneSyncPolicy == PaneSyncPolicy::Independent) {
         close();
     }
 }

@@ -31,8 +31,12 @@
 #include "session/SessionController.h"
 #include "session/SessionManager.h"
 #include "terminalDisplay/TerminalDisplay.h"
+#include "tmux/TmuxController.h"
+#include "tmux/TmuxControllerRegistry.h"
 #include "widgets/IncrementalSearchBar.h"
 #include "widgets/ViewSplitter.h"
+
+#include <KMessageBox>
 
 // TODO Perhaps move everything which is Konsole-specific into different files
 
@@ -684,7 +688,14 @@ void TabbedViewContainer::updateIcon(ViewProperties *item)
 void TabbedViewContainer::updateActivity(ViewProperties *item)
 {
     auto controller = qobject_cast<SessionController *>(item);
-    auto topLevelSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget())->getToplevelSplitter();
+    if (!controller || !controller->view()) {
+        return;
+    }
+    auto *parentSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget());
+    if (!parentSplitter) {
+        return;
+    }
+    auto *topLevelSplitter = parentSplitter->getToplevelSplitter();
 
     const int index = indexOf(topLevelSplitter);
     if (index != currentIndex()) {
@@ -758,11 +769,59 @@ void TabbedViewContainer::currentSessionControllerChanged(SessionController *con
 void TabbedViewContainer::closeTerminalTab(int idx)
 {
     Q_EMIT removeColor(idx);
-    // TODO: This for should probably go to the ViewSplitter
-    const auto viewSplitters = viewSplitterAt(idx)->findChildren<TerminalDisplay *>();
-    for (auto terminal : viewSplitters) {
+
+    // Check if this is a tmux tab by looking at the first terminal's session
+    const auto terminals = viewSplitterAt(idx)->findChildren<TerminalDisplay *>();
+    if (!terminals.isEmpty()) {
+        auto firstSession = terminals.first()->sessionController()->session();
+        if (firstSession && firstSession->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+            closeTmuxTab(terminals);
+            return;
+        }
+    }
+
+    // Normal (non-tmux) close: close each session individually
+    for (auto terminal : terminals) {
         terminal->sessionController()->closeSession();
     }
+}
+
+void TabbedViewContainer::closeTmuxTab(const QList<TerminalDisplay *> &terminals)
+{
+    // Find the tmux controller and window ID from the first pane
+    auto firstSession = terminals.first()->sessionController()->session();
+    TmuxController *controller = nullptr;
+    int paneId = -1;
+    int windowId = -1;
+
+    auto *registry = TmuxControllerRegistry::instance();
+    for (auto *ctrl : registry->controllers()) {
+        paneId = ctrl->paneIdForSession(firstSession);
+        if (paneId >= 0) {
+            controller = ctrl;
+            windowId = ctrl->windowIdForPane(paneId);
+            break;
+        }
+    }
+
+    if (!controller || windowId < 0) {
+        return;
+    }
+
+    // Offer Detach / Kill / Cancel for all tmux tab closes
+    int result = KMessageBox::questionTwoActionsCancel(
+        window(),
+        i18n("Do you want to detach from the tmux session or kill this window?"),
+        i18n("Close Tmux Window"),
+        KGuiItem(i18nc("@action:button", "Detach"), QStringLiteral("network-disconnect")),
+        KGuiItem(i18nc("@action:button", "Kill Window"), QStringLiteral("application-exit")));
+
+    if (result == KMessageBox::PrimaryAction) {
+        controller->requestDetach();
+    } else if (result == KMessageBox::SecondaryAction) {
+        controller->requestCloseWindow(windowId);
+    }
+    // Cancel: do nothing
 }
 
 ViewManager *TabbedViewContainer::connectedViewManager()

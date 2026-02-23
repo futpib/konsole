@@ -103,6 +103,11 @@ void TmuxController::requestClosePane(int paneId)
     _gateway->sendCommand(QStringLiteral("kill-pane -t %") + QString::number(paneId));
 }
 
+void TmuxController::requestCloseWindow(int windowId)
+{
+    _gateway->sendCommand(QStringLiteral("kill-window -t @") + QString::number(windowId));
+}
+
 void TmuxController::requestDetach()
 {
     _gateway->detach();
@@ -116,6 +121,16 @@ bool TmuxController::hasPane(int paneId) const
 int TmuxController::paneIdForSession(Session *session) const
 {
     return _paneManager->paneIdForSession(session);
+}
+
+int TmuxController::windowIdForPane(int paneId) const
+{
+    return _layoutManager->windowIdForPane(paneId);
+}
+
+int TmuxController::windowCount() const
+{
+    return _layoutManager->windowCount();
 }
 
 void TmuxController::handleListWindowsResponse(bool success, const QString &response)

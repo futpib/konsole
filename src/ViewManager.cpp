@@ -48,6 +48,8 @@
 #include "session/SessionManager.h"
 
 #include "terminalDisplay/TerminalDisplay.h"
+#include "tmux/TmuxController.h"
+#include "tmux/TmuxControllerRegistry.h"
 #include "tmux/TmuxSessionBridge.h"
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
@@ -823,6 +825,25 @@ void ViewManager::splitAutoNextTab()
 
 void ViewManager::splitView(Qt::Orientation orientation, bool fromNextTab)
 {
+    // For tmux panes, delegate the split to tmux instead of creating a local session.
+    // Tmux will send %layout-change which triggers applyLayout to rebuild the splitter.
+    if (!fromNextTab) {
+        int currentSessionId = currentSession();
+        if (currentSessionId >= 0) {
+            Session *activeSession = SessionManager::instance()->idToSession(currentSessionId);
+            if (activeSession && activeSession->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+                auto *registry = TmuxControllerRegistry::instance();
+                for (auto *controller : registry->controllers()) {
+                    int paneId = controller->paneIdForSession(activeSession);
+                    if (paneId >= 0) {
+                        controller->requestSplitPane(paneId, orientation);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     TerminalDisplay *terminalDisplay;
     TerminalDisplay *focused;
     if (fromNextTab) {

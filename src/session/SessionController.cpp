@@ -83,6 +83,9 @@
 #include "SessionGroup.h"
 #include "SessionManager.h"
 
+#include "tmux/TmuxController.h"
+#include "tmux/TmuxControllerRegistry.h"
+
 #include "widgets/EditProfileDialog.h"
 #include "widgets/IncrementalSearchBar.h"
 
@@ -1213,6 +1216,28 @@ void SessionController::closeSession()
         return;
     }
 
+    // For tmux panes, confirm and send kill-pane to tmux.
+    // Tmux will notify us via %layout-change / %window-close to trigger cleanup.
+    if (session()->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+        auto *registry = TmuxControllerRegistry::instance();
+        for (auto *controller : registry->controllers()) {
+            int paneId = controller->paneIdForSession(session());
+            if (paneId >= 0) {
+                int result = KMessageBox::warningTwoActions(
+                    view()->window(),
+                    i18n("Are you sure you want to close this tmux pane? The process running in it will be terminated."),
+                    i18n("Confirm Close"),
+                    KGuiItem(i18nc("@action:button", "Close Pane"), QStringLiteral("application-exit")),
+                    KStandardGuiItem::cancel());
+                if (result == KMessageBox::PrimaryAction) {
+                    controller->requestClosePane(paneId);
+                }
+                return;
+            }
+        }
+        return;
+    }
+
     if (!confirmClose()) {
         return;
     }
@@ -2030,7 +2055,9 @@ void SessionController::updateReadOnlyActionStates()
     // Without the timer, when detaching a tab while the message widget is visible,
     // the size of the terminal becomes really small...
     QTimer::singleShot(0, this, [this, readonly]() {
-        view()->updateReadOnlyState(readonly);
+        if (view()) {
+            view()->updateReadOnlyState(readonly);
+        }
     });
 }
 
