@@ -23,7 +23,7 @@ public:
 
     TmuxCommand &paneTarget(int paneId)
     {
-        _parts.append(QStringLiteral("-t %%") + QString::number(paneId));
+        _parts.append(QStringLiteral("-t %") + QString::number(paneId));
         return *this;
     }
 
@@ -35,7 +35,7 @@ public:
 
     TmuxCommand &paneSource(int paneId)
     {
-        _parts.append(QStringLiteral("-s %%") + QString::number(paneId));
+        _parts.append(QStringLiteral("-s %") + QString::number(paneId));
         return *this;
     }
 
