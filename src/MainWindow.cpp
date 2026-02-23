@@ -308,6 +308,12 @@ void MainWindow::activeViewChanged(SessionController *controller)
     updateWindowIcon();
     updateProgress();
 
+    // Disable clone-tab for tmux pane sessions
+    if (auto *cloneAction = actionCollection()->action(QStringLiteral("clone-tab"))) {
+        bool isTmux = TmuxControllerRegistry::instance()->controllerForSession(controller->session()) != nullptr;
+        cloneAction->setEnabled(!isTmux);
+    }
+
     for (IKonsolePlugin *plugin : _plugins) {
         plugin->activeViewChanged(controller, this);
     }
@@ -703,6 +709,11 @@ void MainWindow::cloneTab()
     Q_ASSERT(_pluggedController);
 
     Session *session = _pluggedController->session();
+
+    if (TmuxControllerRegistry::instance()->controllerForSession(session)) {
+        return;
+    }
+
     Profile::Ptr profile = SessionManager::instance()->sessionProfile(session);
     if (profile) {
         createSession(profile, activeSessionDir());
