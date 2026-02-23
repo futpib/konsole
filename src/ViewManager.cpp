@@ -1116,8 +1116,6 @@ void ViewManager::setNavigationMethod(NavigationMethod method)
     enableAction(QStringLiteral("split-view-left-right-next-tab"));
     enableAction(QStringLiteral("split-view-top-bottom-next-tab"));
     enableAction(QStringLiteral("rename-session"));
-    enableAction(QStringLiteral("move-view-left"));
-    enableAction(QStringLiteral("move-view-right"));
 }
 
 ViewManager::NavigationMethod ViewManager::navigationMethod() const
