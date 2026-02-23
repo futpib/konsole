@@ -3213,6 +3213,11 @@ void TerminalDisplay::applyProfile(const Profile::Ptr &profile)
 
     // set scroll-bar position
     _scrollBar->setScrollBarPosition(Enum::ScrollBarPositionEnum(profile->property<int>(Profile::ScrollBarPosition)));
+    // Force hidden scrollbar for tmux panes — tmux doesn't account for scrollbar width
+    if (_sessionController && _sessionController->session()
+        && _sessionController->session()->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+        _scrollBar->setScrollBarPosition(Enum::ScrollBarHidden);
+    }
     _scrollBar->setScrollFullPage(profile->property<bool>(Profile::ScrollFullPage));
 
     // show hint about terminal size after resizing

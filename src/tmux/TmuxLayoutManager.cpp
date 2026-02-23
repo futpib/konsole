@@ -48,6 +48,7 @@ int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
 
                 // Build a new splitter with the updated layout
                 auto *newSplitter = new ViewSplitter();
+                newSplitter->setTmuxMode(true);
                 buildSplitterTree(newSplitter, layout, existingDisplays);
                 connectSplitterSignals(newSplitter);
 
@@ -76,6 +77,7 @@ int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
     }
 
     auto *splitter = new ViewSplitter();
+    splitter->setTmuxMode(true);
     QMap<int, TerminalDisplay *> noExisting;
 
     if (layout.type == TmuxLayoutNodeType::Leaf) {
@@ -190,6 +192,7 @@ void TmuxLayoutManager::buildSplitterTree(ViewSplitter *splitter, const TmuxLayo
             }
         } else {
             auto *childSplitter = new ViewSplitter();
+            childSplitter->setTmuxMode(true);
             buildSplitterTree(childSplitter, child, existingDisplays);
             splitter->addSplitter(childSplitter);
         }

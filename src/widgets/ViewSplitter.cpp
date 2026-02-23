@@ -56,8 +56,20 @@ ViewSplitter::ViewSplitter(QWidget *parent)
     setAcceptDrops(true);
     setHandleWidth(calculateHandleWidth(KonsoleSettings::self()->splitDragHandleSize()));
     connect(KonsoleSettings::self(), &KonsoleSettings::configChanged, this, [this] {
-        setHandleWidth(calculateHandleWidth(KonsoleSettings::self()->splitDragHandleSize()));
+        if (!_tmuxMode) {
+            setHandleWidth(calculateHandleWidth(KonsoleSettings::self()->splitDragHandleSize()));
+        }
     });
+}
+
+void ViewSplitter::setTmuxMode(bool tmuxMode)
+{
+    _tmuxMode = tmuxMode;
+    if (_tmuxMode) {
+        setHandleWidth(1);
+    } else {
+        setHandleWidth(calculateHandleWidth(KonsoleSettings::self()->splitDragHandleSize()));
+    }
 }
 
 /* This function is called on the toplevel splitter, we need to look at the actual ViewSplitter inside it */
