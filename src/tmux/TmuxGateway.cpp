@@ -6,6 +6,7 @@
 
 #include "TmuxGateway.h"
 
+#include "TmuxCommand.h"
 #include "Emulation.h"
 #include "session/Session.h"
 
@@ -295,7 +296,11 @@ void TmuxGateway::sendKeys(int paneId, const QByteArray &data)
                 literal.append(data[i]);
                 i++;
             }
-            QString cmd = QStringLiteral("send-keys -lt %") + QString::number(paneId) + QStringLiteral(" ") + QString::fromLatin1(literal);
+            QString cmd = TmuxCommand(QStringLiteral("send-keys"))
+                             .flag(QStringLiteral("-l"))
+                             .paneTarget(paneId)
+                             .arg(QString::fromLatin1(literal))
+                             .build();
             sendCommand(cmd);
         } else {
             // Collect run of hex-encoded characters (max 125)
@@ -309,7 +314,10 @@ void TmuxGateway::sendKeys(int paneId, const QByteArray &data)
                 }
                 i++;
             }
-            QString cmd = QStringLiteral("send-keys -t %") + QString::number(paneId) + QStringLiteral(" ") + hexParts.join(QLatin1Char(' '));
+            QString cmd = TmuxCommand(QStringLiteral("send-keys"))
+                             .paneTarget(paneId)
+                             .arg(hexParts.join(QLatin1Char(' ')))
+                             .build();
             sendCommand(cmd);
         }
     }

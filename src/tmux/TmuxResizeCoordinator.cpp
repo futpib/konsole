@@ -6,6 +6,7 @@
 
 #include "TmuxResizeCoordinator.h"
 
+#include "TmuxCommand.h"
 #include "TmuxController.h"
 #include "TmuxGateway.h"
 #include "TmuxLayoutManager.h"
@@ -76,7 +77,10 @@ void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
         return;
     }
 
-    _gateway->sendCommand(QStringLiteral("select-layout -t @%1 '%2'").arg(windowId).arg(layoutString));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("select-layout"))
+                              .windowTarget(windowId)
+                              .singleQuotedArg(layoutString)
+                              .build());
 }
 
 void TmuxResizeCoordinator::sendClientSize()
@@ -134,7 +138,10 @@ void TmuxResizeCoordinator::sendClientSize()
             // so other clients can use their own size
             if (_lastClientSizes.contains(windowId)) {
                 _lastClientSizes.remove(windowId);
-                _gateway->sendCommand(QStringLiteral("refresh-client -C @%1:").arg(windowId));
+                _gateway->sendCommand(TmuxCommand(QStringLiteral("refresh-client"))
+                                          .flag(QStringLiteral("-C"))
+                                          .arg(QLatin1Char('@') + QString::number(windowId) + QLatin1Char(':'))
+                                          .build());
             }
             continue;
         }
@@ -155,7 +162,11 @@ void TmuxResizeCoordinator::sendClientSize()
         QSize &lastSize = _lastClientSizes[windowId];
         if (totalCols != lastSize.width() || totalLines != lastSize.height()) {
             lastSize = QSize(totalCols, totalLines);
-            _gateway->sendCommand(QStringLiteral("refresh-client -C @%1:%2x%3").arg(windowId).arg(totalCols).arg(totalLines));
+            _gateway->sendCommand(TmuxCommand(QStringLiteral("refresh-client"))
+                                      .flag(QStringLiteral("-C"))
+                                      .arg(QLatin1Char('@') + QString::number(windowId) + QLatin1Char(':') + QString::number(totalCols) + QLatin1Char('x')
+                                           + QString::number(totalLines))
+                                      .build());
         }
     }
 }

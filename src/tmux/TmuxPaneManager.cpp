@@ -6,6 +6,7 @@
 
 #include "TmuxPaneManager.h"
 
+#include "TmuxCommand.h"
 #include "TmuxGateway.h"
 
 #include "Emulation.h"
@@ -104,7 +105,10 @@ void TmuxPaneManager::unsuppressOutput(int paneId)
 void TmuxPaneManager::pausePane(int paneId)
 {
     _pausedPanes.insert(paneId);
-    _gateway->sendCommand(QStringLiteral("refresh-client -A '%") + QString::number(paneId) + QStringLiteral(":on'"));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("refresh-client"))
+                              .flag(QStringLiteral("-A"))
+                              .singleQuotedArg(QLatin1Char('%') + QString::number(paneId) + QStringLiteral(":on"))
+                              .build());
 }
 
 void TmuxPaneManager::continuePane(int paneId)
@@ -162,7 +166,10 @@ void TmuxPaneManager::queryPaneTitleInfo()
     static const QString format = QStringLiteral(
         "#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}");
 
-    _gateway->sendCommand(QStringLiteral("list-panes -a -F \"%1\"").arg(format),
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("list-panes"))
+                              .flag(QStringLiteral("-a"))
+                              .format(format)
+                              .build(),
                           [this](bool success, const QString &response) {
                               if (!success || response.isEmpty()) {
                                   return;

@@ -6,6 +6,7 @@
 
 #include "TmuxController.h"
 
+#include "TmuxCommand.h"
 #include "TmuxGateway.h"
 #include "TmuxLayoutManager.h"
 #include "TmuxLayoutParser.h"
@@ -77,7 +78,9 @@ TmuxController::~TmuxController()
 void TmuxController::initialize()
 {
     setState(State::Initializing);
-    _gateway->sendCommand(QStringLiteral("list-windows -F \"#{window_id} #{window_name} #{window_layout}\""),
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("list-windows"))
+                              .format(QStringLiteral("#{window_id} #{window_name} #{window_layout}"))
+                              .build(),
                           [this](bool success, const QString &response) {
                               handleListWindowsResponse(success, response);
                           });
@@ -101,39 +104,43 @@ void TmuxController::requestNewWindow()
 void TmuxController::requestSplitPane(int paneId, Qt::Orientation orientation)
 {
     QString direction = (orientation == Qt::Horizontal) ? QStringLiteral("-h") : QStringLiteral("-v");
-    _gateway->sendCommand(QStringLiteral("split-window ") + direction + QStringLiteral(" -t %") + QString::number(paneId));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("split-window"))
+                              .flag(direction)
+                              .paneTarget(paneId)
+                              .build());
 }
 
 void TmuxController::requestClosePane(int paneId)
 {
-    _gateway->sendCommand(QStringLiteral("kill-pane -t %") + QString::number(paneId));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("kill-pane")).paneTarget(paneId).build());
 }
 
 void TmuxController::requestCloseWindow(int windowId)
 {
-    _gateway->sendCommand(QStringLiteral("kill-window -t @") + QString::number(windowId));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("kill-window")).windowTarget(windowId).build());
 }
 
 void TmuxController::requestSwapPane(int srcPaneId, int dstPaneId)
 {
-    _gateway->sendCommand(QStringLiteral("swap-pane -s %%%1 -t %%%2").arg(srcPaneId).arg(dstPaneId));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("swap-pane")).paneSource(srcPaneId).paneTarget(dstPaneId).build());
 }
 
 void TmuxController::requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientation orientation, bool before)
 {
-    QString cmd = QStringLiteral("move-pane -s %%%1 -t %%%2").arg(srcPaneId).arg(dstPaneId);
+    TmuxCommand cmd(QStringLiteral("move-pane"));
+    cmd.paneSource(srcPaneId).paneTarget(dstPaneId);
     if (orientation == Qt::Horizontal) {
-        cmd += QStringLiteral(" -h");
+        cmd.flag(QStringLiteral("-h"));
     }
     if (before) {
-        cmd += QStringLiteral(" -b");
+        cmd.flag(QStringLiteral("-b"));
     }
-    _gateway->sendCommand(cmd);
+    _gateway->sendCommand(cmd.build());
 }
 
 void TmuxController::requestRenameWindow(int windowId, const QString &name)
 {
-    _gateway->sendCommand(QStringLiteral("rename-window -t @%1 \"%2\"").arg(windowId).arg(name));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("rename-window")).windowTarget(windowId).quotedArg(name).build());
 }
 
 void TmuxController::requestDetach()
@@ -324,7 +331,10 @@ void TmuxController::onWindowAdded(int windowId)
     if (_state == State::Initializing) {
         return;
     }
-    _gateway->sendCommand(QStringLiteral("list-windows -t @%1 -F \"#{window_id} #{window_name} #{window_layout}\"").arg(windowId),
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("list-windows"))
+                              .windowTarget(windowId)
+                              .format(QStringLiteral("#{window_id} #{window_name} #{window_layout}"))
+                              .build(),
                           [this](bool success, const QString &response) {
                               if (!success || response.isEmpty()) {
                                   return;
@@ -416,7 +426,9 @@ bool TmuxController::shouldSuppressResize() const
 
 void TmuxController::refreshClientCount()
 {
-    _gateway->sendCommand(QStringLiteral("list-clients -F \"#{client_name}\""),
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("list-clients"))
+                              .format(QStringLiteral("#{client_name}"))
+                              .build(),
                           [this](bool success, const QString &response) {
                               if (!success) {
                                   return;

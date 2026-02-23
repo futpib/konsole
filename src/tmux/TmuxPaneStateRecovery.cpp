@@ -6,6 +6,7 @@
 
 #include "TmuxPaneStateRecovery.h"
 
+#include "TmuxCommand.h"
 #include "TmuxGateway.h"
 #include "TmuxPaneManager.h"
 
@@ -31,7 +32,10 @@ void TmuxPaneStateRecovery::queryPaneStates(int windowId)
         "\t#{keypad_flag}\t#{wrap_flag}\t#{mouse_standard_flag}"
         "\t#{mouse_button_flag}\t#{mouse_any_flag}\t#{mouse_sgr_flag}");
 
-    _gateway->sendCommand(QStringLiteral("list-panes -t @%1 -F \"%2\"").arg(windowId).arg(format),
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("list-panes"))
+                              .windowTarget(windowId)
+                              .format(format)
+                              .build(),
                           [this, windowId](bool success, const QString &response) {
                               handlePaneStateResponse(windowId, success, response);
                           });
@@ -87,7 +91,14 @@ void TmuxPaneStateRecovery::setPaneDimensions(int paneId, int width, int height)
 void TmuxPaneStateRecovery::capturePaneHistory(int paneId)
 {
     _pendingCapture.insert(paneId);
-    _gateway->sendCommand(QStringLiteral("capture-pane -p -J -e -t %") + QString::number(paneId) + QStringLiteral(" -S -"),
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("capture-pane"))
+                              .flag(QStringLiteral("-p"))
+                              .flag(QStringLiteral("-J"))
+                              .flag(QStringLiteral("-e"))
+                              .paneTarget(paneId)
+                              .flag(QStringLiteral("-S"))
+                              .arg(QStringLiteral("-"))
+                              .build(),
                           [this, paneId](bool success, const QString &response) {
                               handleCapturePaneResponse(paneId, success, response);
                           });
