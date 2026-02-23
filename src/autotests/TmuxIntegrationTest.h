@@ -24,6 +24,9 @@ private Q_SLOTS:
     void testTmuxAttachComplexPromptRecovery();
     void testSplitterResizePropagatedToTmux();
     void testTmuxPaneTitleInfo();
+    void testSplitPaneFocusesNewPane();
+    void testSplitPaneFocusesNewPaneComplexLayout();
+    void testSplitPaneFocusesNewPaneNestedLayout();
 };
 
 }

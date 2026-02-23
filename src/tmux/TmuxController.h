@@ -78,6 +78,7 @@ private:
     bool shouldSuppressResize() const;
 
     void applyWindowLayout(int windowId, const TmuxLayoutNode &layout);
+    bool focusPane(int paneId);
     void setWindowTabTitle(int windowId, const QString &name);
     void refreshPaneTitles();
     void handleListWindowsResponse(bool success, const QString &response);
@@ -100,6 +101,7 @@ private:
     QString _sessionName;
     int _sessionId = -1;
     State _state = State::Idle;
+    int _activePaneId = -1;
 };
 
 } // namespace Konsole

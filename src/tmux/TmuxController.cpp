@@ -16,6 +16,7 @@
 
 #include "ViewManager.h"
 #include "session/Session.h"
+#include "terminalDisplay/TerminalDisplay.h"
 #include "widgets/ViewContainer.h"
 
 namespace Konsole
@@ -331,6 +332,16 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
         setState(State::ApplyingLayout);
         applyWindowLayout(windowId, parsed.value());
         setState(State::Idle);
+
+        // After applying a layout, (re-)focus the active pane if it belongs
+        // to this window. This handles two cases:
+        // 1. %window-pane-changed arrived before %layout-change — the pane
+        //    session didn't exist yet, so we deferred focus.
+        // 2. A subsequent %layout-change rebuilt the splitter tree, destroying
+        //    the previously focused display — we need to focus the new one.
+        if (_activePaneId >= 0 && _windowPanes.value(windowId).contains(_activePaneId)) {
+            focusPane(_activePaneId);
+        }
     }
 }
 
@@ -389,7 +400,22 @@ void TmuxController::onWindowRenamed(int windowId, const QString &name)
 void TmuxController::onWindowPaneChanged(int windowId, int paneId)
 {
     Q_UNUSED(windowId)
-    Q_UNUSED(paneId)
+    _activePaneId = paneId;
+    focusPane(paneId);
+}
+
+bool TmuxController::focusPane(int paneId)
+{
+    Session *session = _paneManager->sessionForPane(paneId);
+    if (!session) {
+        return false;
+    }
+    const auto displays = session->views();
+    if (!displays.isEmpty()) {
+        displays.first()->setFocus(Qt::OtherFocusReason);
+        return true;
+    }
+    return false;
 }
 
 void TmuxController::onSessionChanged(int sessionId, const QString &name)
