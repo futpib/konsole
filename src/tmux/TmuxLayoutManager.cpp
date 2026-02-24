@@ -205,12 +205,23 @@ bool TmuxLayoutManager::updateSplitterSizes(ViewSplitter *splitter, const TmuxLa
     }
 
     if (!skipSizeUpdate) {
+        for (int i = 0; i < node.children.size(); ++i) {
+            const auto &child = node.children[i];
+            if (child.type == TmuxLayoutNodeType::Leaf) {
+                auto *display = qobject_cast<TerminalDisplay *>(splitter->widget(i));
+                if (display) {
+                    display->setSize(child.width, child.height);
+                }
+            }
+        }
+
         QList<int> sizes;
-        for (const auto &child : node.children) {
+        for (int i = 0; i < node.children.size(); ++i) {
+            QWidget *widget = splitter->widget(i);
             if (splitter->orientation() == Qt::Horizontal) {
-                sizes.append(child.width);
+                sizes.append(widget->sizeHint().width());
             } else {
-                sizes.append(child.height);
+                sizes.append(widget->sizeHint().height());
             }
         }
         splitter->setSizes(sizes);
@@ -266,6 +277,7 @@ void TmuxLayoutManager::buildSplitterTree(ViewSplitter *splitter, const TmuxLayo
             TerminalDisplay *display = getOrCreateDisplay(child.paneId);
             if (display) {
                 splitter->addTerminalDisplay(display, -1);
+                display->setSize(child.width, child.height);
             }
         } else {
             auto *childSplitter = new ViewSplitter();
@@ -276,11 +288,12 @@ void TmuxLayoutManager::buildSplitterTree(ViewSplitter *splitter, const TmuxLayo
     }
 
     QList<int> sizes;
-    for (const auto &child : node.children) {
+    for (int i = 0; i < node.children.size(); ++i) {
+        QWidget *widget = splitter->widget(i);
         if (orientation == Qt::Horizontal) {
-            sizes.append(child.width);
+            sizes.append(widget->sizeHint().width());
         } else {
-            sizes.append(child.height);
+            sizes.append(widget->sizeHint().height());
         }
     }
     splitter->setSizes(sizes);
