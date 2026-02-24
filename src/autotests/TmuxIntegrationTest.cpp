@@ -5,6 +5,7 @@
 */
 
 #include "TmuxIntegrationTest.h"
+#include "TmuxTestDSL.h"
 
 #include <QPointer>
 #include <QProcess>
@@ -128,40 +129,23 @@ void TmuxIntegrationTest::testTmuxControlModeAttach()
         QSKIP("tmux command not found.");
     }
 
-    // Create a detached tmux session with a unique name
-    const QString sessionName = QStringLiteral("konsole-test-%1").arg(QCoreApplication::applicationPid());
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────┐
+        │ cmd:     │
+        │ sleep 30 │
+        └──────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName, QStringLiteral("sleep 30")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-
-    // Simulate: konsole -e 'tmux -CC attach -t <sessionName>'
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Close the pane tab, then the gateway tab
     Session *paneSession = nullptr;
-    const auto sessions = vm->sessions();
+    const auto sessions = attach.mw->viewManager()->sessions();
     for (Session *s : sessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             paneSession = s;
             break;
         }
@@ -169,17 +153,12 @@ void TmuxIntegrationTest::testTmuxControlModeAttach()
     QVERIFY(paneSession);
 
     paneSession->closeInNormalWay();
-    gatewaySession->closeInNormalWay();
+    attach.gatewaySession->closeInNormalWay();
 
     // Wait for everything to tear down
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
 
-    delete mwGuard.data();
-
-    // Clean up the tmux session
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    delete attach.mw.data();
 }
 
 void TmuxIntegrationTest::testTmuxTwoPaneSplitAttach()
@@ -189,78 +168,36 @@ void TmuxIntegrationTest::testTmuxTwoPaneSplitAttach()
         QSKIP("tmux command not found.");
     }
 
-    // Create a detached tmux session with two panes (horizontal split)
-    const QString sessionName = QStringLiteral("konsole-split-test-%1").arg(QCoreApplication::applicationPid());
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────┬──────────┐
+        │ cmd:     │ cmd:     │
+        │ sleep 30 │ sleep 30 │
+        └──────────┴──────────┘
+        size: 180x40
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName, QStringLiteral("-x"), QStringLiteral("180"), QStringLiteral("-y"), QStringLiteral("40"), QStringLiteral("sleep 30")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
-    // Split the window horizontally to create a second pane
-    QProcess tmuxSplit;
-    tmuxSplit.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-h"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 30")});
-    QVERIFY(tmuxSplit.waitForFinished(5000));
-    QCOMPARE(tmuxSplit.exitCode(), 0);
-
-    // Attach Konsole to this two-pane session via control mode
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
-
-    // Find the tab that contains the split panes (not the gateway tab)
-    // The tmux pane tab should be a ViewSplitter with 2 TerminalDisplay children
-    ViewSplitter *paneSplitter = nullptr;
-    for (int i = 0; i < container->count(); ++i) {
-        auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
-        if (splitter) {
-            auto terminals = splitter->findChildren<TerminalDisplay *>();
-            qDebug() << "Tab" << i << "has" << terminals.size() << "TerminalDisplay children,"
-                     << splitter->count() << "direct children,"
-                     << "orientation:" << splitter->orientation();
-            if (terminals.size() == 2) {
-                paneSplitter = splitter;
-                break;
-            }
-        }
-    }
-    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children for the two-pane tmux layout");
-
-    // Verify the splitter orientation is horizontal (matching the -h split)
-    QCOMPARE(paneSplitter->orientation(), Qt::Horizontal);
+    TmuxTestDSL::assertKonsoleLayout(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────┬──────────┐
+        │          │          │
+        └──────────┴──────────┘
+    )")), attach.mw->viewManager(), attach.gatewaySession);
 
     // Clean up: close pane sessions, then gateway
-    const auto sessions = vm->sessions();
+    const auto sessions = attach.mw->viewManager()->sessions();
     for (Session *s : sessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             s->closeInNormalWay();
         }
     }
-    gatewaySession->closeInNormalWay();
+    attach.gatewaySession->closeInNormalWay();
 
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
-
-    // Kill the tmux session
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 // Helper: read all visible text from a Session's screen
@@ -300,6 +237,7 @@ void TmuxIntegrationTest::testTmuxAttachContentRecovery()
                           bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
     QVERIFY(tmuxNewSession.waitForFinished(5000));
     QCOMPARE(tmuxNewSession.exitCode(), 0);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, sessionName); });
 
     // Send a command with Unicode output
     QProcess sendKeys;
@@ -312,31 +250,14 @@ void TmuxIntegrationTest::testTmuxAttachContentRecovery()
     QTest::qWait(500);
 
     // Now attach Konsole via -CC
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, sessionName, attach);
 
     // Find the pane session (not the gateway)
     Session *paneSession = nullptr;
-    const auto sessions = vm->sessions();
+    const auto sessions = attach.mw->viewManager()->sessions();
     for (Session *s : sessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             paneSession = s;
             break;
         }
@@ -356,19 +277,15 @@ void TmuxIntegrationTest::testTmuxAttachContentRecovery()
              qPrintable(QStringLiteral("Pane screen should contain 'MARKER_END', got: ") + screenText));
 
     // Cleanup: close pane sessions first, then gateway
-    const auto allSessions = vm->sessions();
+    const auto allSessions = attach.mw->viewManager()->sessions();
     for (Session *s : allSessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             s->closeInNormalWay();
         }
     }
-    gatewaySession->closeInNormalWay();
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
-
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    attach.gatewaySession->closeInNormalWay();
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
@@ -384,7 +301,6 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
     }
 
     // Create a detached tmux session running bash with a complex PS1 prompt
-    // similar to the user's real prompt with Unicode and ANSI escape codes
     const QString sessionName = QStringLiteral("konsole-prompt-test-%1").arg(QCoreApplication::applicationPid());
 
     QProcess tmuxNewSession;
@@ -394,10 +310,9 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
                           bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
     QVERIFY(tmuxNewSession.waitForFinished(5000));
     QCOMPARE(tmuxNewSession.exitCode(), 0);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, sessionName); });
 
-    // Set a complex PS1 prompt with ANSI colors and Unicode, similar to the user's:
-    // [15:25:11] [user@host ~/code/project] ────...──── bash 5.3.9(1)-release  →
-    // The long ──── line fills most of the 240-column width
+    // Set a complex PS1 prompt with ANSI colors and Unicode
     QProcess sendPS1;
     sendPS1.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), sessionName,
                              QStringLiteral("PS1='\\[\\033[36m\\][\\t] [\\u@\\h \\w] \\[\\033[33m\\]────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── \\[\\033[35m\\]\\s \\V  \\[\\033[32m\\]→ \\[\\033[0m\\]'"),
@@ -419,31 +334,14 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
     QTest::qWait(500);
 
     // Now attach Konsole via -CC
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, sessionName, attach);
 
     // Find the pane session (not the gateway)
     Session *paneSession = nullptr;
-    const auto sessions = vm->sessions();
+    const auto sessions = attach.mw->viewManager()->sessions();
     for (Session *s : sessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             paneSession = s;
             break;
         }
@@ -457,33 +355,25 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
     QString screenText = readSessionScreenText(paneSession);
     qDebug() << "Complex prompt pane screen text:" << screenText;
 
-    // The capture-pane without -e strips ANSI codes, so we should see the
-    // plain text content of the prompt and command output
     QVERIFY2(screenText.contains(QStringLiteral("PROMPT_TEST_OUTPUT")),
              qPrintable(QStringLiteral("Pane screen should contain 'PROMPT_TEST_OUTPUT', got: ") + screenText));
 
-    // Verify we see the Unicode arrow from the prompt (capture-pane preserves Unicode text)
     QVERIFY2(screenText.contains(QStringLiteral("→")),
              qPrintable(QStringLiteral("Pane screen should contain '→' from prompt, got: ") + screenText));
 
-    // Verify the prompt structure is preserved (timestamp, user@host pattern)
     QVERIFY2(screenText.contains(QStringLiteral("────")),
              qPrintable(QStringLiteral("Pane screen should contain '────' from prompt, got: ") + screenText));
 
     // Cleanup: close pane sessions first, then gateway
-    const auto allSessions = vm->sessions();
+    const auto allSessions = attach.mw->viewManager()->sessions();
     for (Session *s : allSessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             s->closeInNormalWay();
         }
     }
-    gatewaySession->closeInNormalWay();
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
-
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    attach.gatewaySession->closeInNormalWay();
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
@@ -493,24 +383,19 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
         QSKIP("tmux command not found.");
     }
 
-    // Create a detached tmux session with two horizontal panes
-    const QString sessionName = QStringLiteral("konsole-resize-test-%1").arg(QCoreApplication::applicationPid());
-
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
-                                    QStringLiteral("-x"), QStringLiteral("160"), QStringLiteral("-y"), QStringLiteral("40"),
-                                    QStringLiteral("sleep 60")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-
-    QProcess tmuxSplit;
-    tmuxSplit.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-h"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 60")});
-    QVERIFY(tmuxSplit.waitForFinished(5000));
-    QCOMPARE(tmuxSplit.exitCode(), 0);
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────┬──────────┐
+        │ cmd:     │ cmd:     │
+        │ sleep 60 │ sleep 60 │
+        └──────────┴──────────┘
+        size: 160x40
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
     // Query initial pane sizes
     QProcess tmuxListPanes;
-    tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), sessionName,
+    tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
                                    QStringLiteral("-F"), QStringLiteral("#{pane_width}")});
     QVERIFY(tmuxListPanes.waitForFinished(5000));
     QCOMPARE(tmuxListPanes.exitCode(), 0);
@@ -520,31 +405,13 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     int initialWidth1 = initialWidths[1].toInt();
     qDebug() << "Initial tmux pane widths:" << initialWidth0 << initialWidth1;
 
-    // Attach Konsole
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Find the split pane splitter
     ViewSplitter *paneSplitter = nullptr;
-    for (int i = 0; i < container->count(); ++i) {
-        auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
         if (splitter) {
             auto terminals = splitter->findChildren<TerminalDisplay *>();
             if (terminals.size() == 2) {
@@ -569,8 +436,6 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
              << "columns:" << leftDisplay->columns() << rightDisplay->columns();
 
     // Move the splitter: make left pane significantly larger (3/4 vs 1/4).
-    // setSizes alone may not trigger real layout in offscreen platform,
-    // so we also explicitly resize the display widgets.
     int total = sizes[0] + sizes[1];
     int newLeft = total * 3 / 4;
     int newRight = total - newLeft;
@@ -610,7 +475,7 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     // Wait for the command to propagate to tmux and verify exact sizes
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         QProcess check;
-        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), sessionName,
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
                                 QStringLiteral("-F"), QStringLiteral("#{pane_width} #{pane_height}")});
         check.waitForFinished(3000);
         QStringList paneLines = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
@@ -630,7 +495,7 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     // Also verify tmux window size matches
     {
         QProcess checkWindow;
-        checkWindow.start(tmuxPath, {QStringLiteral("list-windows"), QStringLiteral("-t"), sessionName,
+        checkWindow.start(tmuxPath, {QStringLiteral("list-windows"), QStringLiteral("-t"), ctx.sessionName,
                                      QStringLiteral("-F"), QStringLiteral("#{window_width} #{window_height}")});
         QVERIFY(checkWindow.waitForFinished(3000));
         QStringList windowSize = QString::fromUtf8(checkWindow.readAllStandardOutput()).trimmed().split(QLatin1Char(' '));
@@ -647,12 +512,11 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     QTest::qWait(500);
 
     // Kill the tmux session first to avoid layout-change during teardown
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    // (cleanup guard handles this, but we want it early)
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
 
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 void TmuxIntegrationTest::testTmuxPaneTitleInfo()
@@ -668,6 +532,7 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
     }
 
     // Create a detached tmux session running bash
+    // (Can't use DSL setupTmuxSession because we need bash as the command, not sleep)
     const QString sessionName = QStringLiteral("konsole-title-test-%1").arg(QCoreApplication::applicationPid());
 
     QProcess tmuxNewSession;
@@ -677,6 +542,7 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
                           bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
     QVERIFY(tmuxNewSession.waitForFinished(5000));
     QCOMPARE(tmuxNewSession.exitCode(), 0);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, sessionName); });
 
     // cd to /tmp so we have a known directory
     QProcess sendCd;
@@ -686,32 +552,14 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
     QCOMPARE(sendCd.exitCode(), 0);
     QTest::qWait(500);
 
-    // Attach Konsole via -CC
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, sessionName, attach);
 
     // Find the pane session (not the gateway)
     Session *paneSession = nullptr;
-    const auto sessions = vm->sessions();
+    const auto sessions = attach.mw->viewManager()->sessions();
     for (Session *s : sessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             paneSession = s;
             break;
         }
@@ -721,14 +569,10 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
     auto *virtualSession = qobject_cast<VirtualSession *>(paneSession);
     QVERIFY(virtualSession);
 
-    // Wait for pane title info to be queried (initial refresh + timer).
-    // The controller queries pane info on initialization and every 2 seconds.
-    // Check that getDynamicTitle() produces something meaningful.
+    // Wait for pane title info to be queried
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         QString title = paneSession->getDynamicTitle();
         qDebug() << "Pane dynamic title:" << title;
-        // The title should contain the current directory (/tmp) via %d placeholder
-        // or the process name (bash) via %n placeholder
         return title.contains(QStringLiteral("tmp")) || title.contains(QStringLiteral("bash"));
     }(), 10000);
 
@@ -740,25 +584,20 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
     QVERIFY(windowId >= 0);
     int tabIndex = controller->windowToTabIndex().value(windowId, -1);
     QVERIFY(tabIndex >= 0);
-    QString tabText = container->tabText(tabIndex);
+    QString tabText = attach.container->tabText(tabIndex);
     qDebug() << "Tab text:" << tabText;
-    // The tab title should be the tmux window name (typically "bash" for the default shell)
     QVERIFY2(!tabText.isEmpty(), "Tab text should not be empty for tmux window");
 
     // Cleanup
-    const auto allSessions = vm->sessions();
+    const auto allSessions = attach.mw->viewManager()->sessions();
     for (Session *s : allSessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             s->closeInNormalWay();
         }
     }
-    gatewaySession->closeInNormalWay();
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
-
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    attach.gatewaySession->closeInNormalWay();
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 void TmuxIntegrationTest::testSplitPaneFocusesNewPane()
@@ -768,42 +607,24 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPane()
         QSKIP("tmux command not found.");
     }
 
-    // Create a detached tmux session with a single pane
-    const QString sessionName = QStringLiteral("konsole-focus-test-%1").arg(QCoreApplication::applicationPid());
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────┐
+        │ cmd:     │
+        │ sleep 60 │
+        └──────────┘
+        size: 160x40
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
-                                    QStringLiteral("-x"), QStringLiteral("160"), QStringLiteral("-y"), QStringLiteral("40"),
-                                    QStringLiteral("sleep 60")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-
-    // Attach Konsole via -CC
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Find the pane session and its controller
     Session *paneSession = nullptr;
-    const auto sessions = vm->sessions();
+    const auto sessions = attach.mw->viewManager()->sessions();
     for (Session *s : sessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             paneSession = s;
             break;
         }
@@ -821,18 +642,18 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPane()
     auto *originalDisplay = originalDisplays.first();
 
     // Show and activate the window so setFocus() works
-    mw->show();
-    QVERIFY(QTest::qWaitForWindowActive(mw));
+    attach.mw->show();
+    QVERIFY(QTest::qWaitForWindowActive(attach.mw));
 
-    // Request a horizontal split from within Konsole (this sends split-window to tmux)
+    // Request a horizontal split from within Konsole
     controller->requestSplitPane(paneId, Qt::Horizontal);
 
     // Wait for the split to appear: a ViewSplitter with 2 TerminalDisplay children
     ViewSplitter *paneSplitter = nullptr;
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
-        for (int i = 0; i < container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        for (int i = 0; i < attach.container->count(); ++i) {
+            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 2) {
@@ -857,16 +678,14 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPane()
     }
     QVERIFY2(newDisplay, "Expected to find a new TerminalDisplay after split");
 
-    // The new pane should have focus (tmux sends %window-pane-changed after split-window)
+    // The new pane should have focus
     QTRY_VERIFY_WITH_TIMEOUT(newDisplay->hasFocus(), 5000);
 
     // Kill the tmux session first to avoid layout-change during teardown
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
 
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
@@ -876,60 +695,33 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
         QSKIP("tmux command not found.");
     }
 
-    // Create a detached tmux session with 3 panes (two horizontal splits)
-    const QString sessionName = QStringLiteral("konsole-focus-complex-test-%1").arg(QCoreApplication::applicationPid());
-
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
-                                    QStringLiteral("-x"), QStringLiteral("160"), QStringLiteral("-y"), QStringLiteral("40"),
-                                    QStringLiteral("sleep 60")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-
-    // Split horizontally twice to create 3 panes
-    QProcess tmuxSplit1;
-    tmuxSplit1.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-h"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 60")});
-    QVERIFY(tmuxSplit1.waitForFinished(5000));
-    QCOMPARE(tmuxSplit1.exitCode(), 0);
-
-    QProcess tmuxSplit2;
-    tmuxSplit2.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-h"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 60")});
-    QVERIFY(tmuxSplit2.waitForFinished(5000));
-    QCOMPARE(tmuxSplit2.exitCode(), 0);
+    // Create 3 horizontal panes, select pane 0, then split it vertically from Konsole
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────┬──────┬──────┐
+        │ cmd: │ cmd: │ cmd: │
+        │ sleep│ sleep│ sleep│
+        │  60  │  60  │  60  │
+        └──────┴──────┴──────┘
+        size: 160x40
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
     // Select the first pane so we know which one is active before attaching
     QProcess tmuxSelect;
-    tmuxSelect.start(tmuxPath, {QStringLiteral("select-pane"), QStringLiteral("-t"), sessionName + QStringLiteral(":0.0")});
+    tmuxSelect.start(tmuxPath, {QStringLiteral("select-pane"), QStringLiteral("-t"), ctx.sessionName + QStringLiteral(":0.0")});
     QVERIFY(tmuxSelect.waitForFinished(5000));
     QCOMPARE(tmuxSelect.exitCode(), 0);
 
-    // Attach Konsole via -CC
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *view = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(view);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Wait for all 3 panes to appear
     ViewSplitter *paneSplitter = nullptr;
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
-        for (int i = 0; i < container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        for (int i = 0; i < attach.container->count(); ++i) {
+            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 3) {
@@ -942,12 +734,11 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     }(), 10000);
     QVERIFY(paneSplitter);
 
-    // Find the first pane (pane 0) — we'll split this one
-    // Get all pane sessions (non-gateway)
+    // Find the first pane to split
     QList<Session *> paneSessions;
-    const auto sessions = vm->sessions();
+    const auto sessions = attach.mw->viewManager()->sessions();
     for (Session *s : sessions) {
-        if (s != gatewaySession) {
+        if (s != attach.gatewaySession) {
             paneSessions.append(s);
         }
     }
@@ -956,7 +747,6 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSessions.first());
     QVERIFY(controller);
 
-    // Pick the first pane to split
     int firstPaneId = controller->paneIdForSession(paneSessions.first());
     QVERIFY(firstPaneId >= 0);
 
@@ -965,8 +755,8 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     QCOMPARE(existingTerminals.size(), 3);
 
     // Show and activate the window so setFocus() works
-    mw->show();
-    QVERIFY(QTest::qWaitForWindowActive(mw));
+    attach.mw->show();
+    QVERIFY(QTest::qWaitForWindowActive(attach.mw));
 
     // Request a vertical split on the first pane
     controller->requestSplitPane(firstPaneId, Qt::Vertical);
@@ -974,8 +764,8 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     // Wait for 4 panes to appear
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
-        for (int i = 0; i < container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        for (int i = 0; i < attach.container->count(); ++i) {
+            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 4) {
@@ -1004,12 +794,10 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     QTRY_VERIFY_WITH_TIMEOUT(newDisplay->hasFocus(), 5000);
 
     // Kill the tmux session first to avoid layout-change during teardown
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
 
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
@@ -1019,65 +807,35 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
         QSKIP("tmux command not found.");
     }
 
-    // Create a detached tmux session with a nested layout:
-    // Start with one pane, split horizontally, then split the right pane vertically.
-    // Layout: [ pane0 | [ pane1 / pane2 ] ]
-    // Then split pane0 vertically from Konsole to get:
-    // [ [ pane0 / new ] | [ pane1 / pane2 ] ]
-    const QString sessionName = QStringLiteral("konsole-focus-nested-test-%1").arg(QCoreApplication::applicationPid());
-
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath, {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
-                                    QStringLiteral("-x"), QStringLiteral("160"), QStringLiteral("-y"), QStringLiteral("40"),
-                                    QStringLiteral("sleep 60")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-
-    // Split horizontally: [ pane0 | pane1 ]
-    QProcess tmuxSplit1;
-    tmuxSplit1.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-h"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 60")});
-    QVERIFY(tmuxSplit1.waitForFinished(5000));
-    QCOMPARE(tmuxSplit1.exitCode(), 0);
-
-    // Split pane1 (the right pane, currently active) vertically: [ pane0 | [ pane1 / pane2 ] ]
-    QProcess tmuxSplit2;
-    tmuxSplit2.start(tmuxPath, {QStringLiteral("split-window"), QStringLiteral("-v"), QStringLiteral("-t"), sessionName, QStringLiteral("sleep 60")});
-    QVERIFY(tmuxSplit2.waitForFinished(5000));
-    QCOMPARE(tmuxSplit2.exitCode(), 0);
+    // Create nested layout: [ pane0 | [ pane1 / pane2 ] ]
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────┬──────────┐
+        │ cmd:     │ cmd:     │
+        │ sleep 60 │ sleep 60 │
+        │          ├──────────┤
+        │          │ cmd:     │
+        │          │ sleep 60 │
+        └──────────┴──────────┘
+        size: 160x40
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
     // Select the first pane (pane0) so that's what we'll split from Konsole
     QProcess tmuxSelect;
-    tmuxSelect.start(tmuxPath, {QStringLiteral("select-pane"), QStringLiteral("-t"), sessionName + QStringLiteral(":0.0")});
+    tmuxSelect.start(tmuxPath, {QStringLiteral("select-pane"), QStringLiteral("-t"), ctx.sessionName + QStringLiteral(":0.0")});
     QVERIFY(tmuxSelect.waitForFinished(5000));
     QCOMPARE(tmuxSelect.exitCode(), 0);
 
-    // Attach Konsole via -CC
-    auto *mw = new MainWindow();
-    QPointer<MainWindow> mwGuard(mw);
-    ViewManager *vm = mw->viewManager();
-
-    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach"), QStringLiteral("-t"), sessionName});
-
-    Session *gatewaySession = vm->createSession(profile, QString());
-    auto *gatewayView = vm->createView(gatewaySession);
-    vm->activeContainer()->addView(gatewayView);
-    gatewaySession->run();
-
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
-    QCOMPARE(container->count(), 1);
-
-    // Wait for tmux control mode to create virtual pane tab(s)
-    QTRY_VERIFY_WITH_TIMEOUT(container && container->count() >= 2, 10000);
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Wait for all 3 panes to appear
     ViewSplitter *paneSplitter = nullptr;
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
-        for (int i = 0; i < container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        for (int i = 0; i < attach.container->count(); ++i) {
+            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 3) {
@@ -1090,14 +848,16 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     }(), 10000);
     QVERIFY(paneSplitter);
 
-    // Find pane0's session (the first pane)
+    // Find pane0's session
     auto *controller = TmuxControllerRegistry::instance()->controllerForSession(
-        vm->sessions().first() == gatewaySession ? vm->sessions().at(1) : vm->sessions().first());
+        attach.mw->viewManager()->sessions().first() == attach.gatewaySession
+            ? attach.mw->viewManager()->sessions().at(1)
+            : attach.mw->viewManager()->sessions().first());
     QVERIFY(controller);
 
-    // Find pane0: the leftmost display. Query tmux for pane IDs to find the first one.
+    // Find pane0: query tmux for pane IDs to find the first one
     QProcess tmuxListPanes;
-    tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), sessionName,
+    tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
                                    QStringLiteral("-F"), QStringLiteral("#{pane_id}")});
     QVERIFY(tmuxListPanes.waitForFinished(5000));
     QCOMPARE(tmuxListPanes.exitCode(), 0);
@@ -1111,8 +871,8 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     QCOMPARE(existingTerminals.size(), 3);
 
     // Show and activate the window
-    mw->show();
-    QVERIFY(QTest::qWaitForWindowActive(mw));
+    attach.mw->show();
+    QVERIFY(QTest::qWaitForWindowActive(attach.mw));
 
     // Split pane0 vertically from Konsole
     controller->requestSplitPane(firstPaneId, Qt::Vertical);
@@ -1120,8 +880,8 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     // Wait for 4 panes to appear
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
-        for (int i = 0; i < container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        for (int i = 0; i < attach.container->count(); ++i) {
+            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 4) {
@@ -1150,12 +910,10 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     QTRY_VERIFY_WITH_TIMEOUT(newDisplay->hasFocus(), 5000);
 
     // Kill the tmux session first
-    QProcess tmuxKill;
-    tmuxKill.start(tmuxPath, {QStringLiteral("kill-session"), QStringLiteral("-t"), sessionName});
-    tmuxKill.waitForFinished(5000);
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
 
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard, 10000);
-    delete mwGuard.data();
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
 }
 
 QTEST_MAIN(TmuxIntegrationTest)
