@@ -72,7 +72,10 @@ void setupTmuxSession(const DiagramSpec &spec, const QString &tmuxPath, SessionC
 // Waits for virtual pane tabs to appear.
 void attachKonsole(const QString &tmuxPath, const QString &sessionName, AttachResult &result);
 
-// Assert that the Konsole ViewSplitter tree matches the diagram structure.
+// Resize Konsole window and splitters so TerminalDisplay columns()/lines() match the diagram.
+void applyKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gatewaySession);
+
+// Assert that the Konsole ViewSplitter tree matches the diagram structure, dimensions, and focus.
 void assertKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gatewaySession);
 
 // Assert that tmux pane state matches the diagram.

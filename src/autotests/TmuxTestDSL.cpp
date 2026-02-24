@@ -8,6 +8,7 @@
 
 #include <QCoreApplication>
 #include <QProcess>
+#include <QResizeEvent>
 #include <QStandardPaths>
 #include <QTest>
 
@@ -16,6 +17,7 @@
 #include "../profile/ProfileManager.h"
 #include "../session/Session.h"
 #include "../terminalDisplay/TerminalDisplay.h"
+#include "../terminalDisplay/TerminalFonts.h"
 #include "../widgets/ViewContainer.h"
 #include "../widgets/ViewSplitter.h"
 
@@ -384,6 +386,97 @@ void buildSplitSteps(const TmuxTestDSL::LayoutSpec &layout,
             buildSplitSteps(layout.children[i], {}, steps, nextLeafIndex, totalLeaves);
         }
     }
+}
+
+// Recursively walk the layout tree and splitter tree in parallel,
+// collecting (TerminalDisplay*, PaneSpec) pairs for leaf nodes.
+void collectDisplayPanePairs(const TmuxTestDSL::LayoutSpec &layout,
+                             ViewSplitter *splitter,
+                             QList<QPair<TerminalDisplay *, TmuxTestDSL::PaneSpec>> &pairs)
+{
+    if (layout.type == TmuxTestDSL::LayoutSpec::Leaf) {
+        // The splitter's widget at this level should be a TerminalDisplay
+        // (or the splitter itself is the parent and we were called for a leaf child)
+        // When called from a split parent, splitter is actually the parent splitter
+        // and we need to get the child widget at the right index.
+        // But this function is called with the correct widget — if it's a leaf,
+        // the widget passed should be a TerminalDisplay's parent splitter.
+        // Actually, for leaves we get called from the split-level iteration below,
+        // where we pass the child widget. If the child is a TerminalDisplay directly,
+        // the splitter parameter may be null. We handle this by having the caller
+        // pass the display directly via a separate path.
+        // Let's handle both cases:
+        if (splitter) {
+            // Leaf inside a splitter that has exactly one TerminalDisplay
+            auto displays = splitter->findChildren<TerminalDisplay *>(Qt::FindDirectChildrenOnly);
+            if (!displays.isEmpty()) {
+                pairs.append(qMakePair(displays.first(), layout.pane));
+            }
+        }
+        return;
+    }
+
+    if (!splitter) {
+        return;
+    }
+
+    for (int i = 0; i < layout.children.size() && i < splitter->count(); ++i) {
+        const auto &child = layout.children[i];
+        QWidget *childWidget = splitter->widget(i);
+
+        if (child.type == TmuxTestDSL::LayoutSpec::Leaf) {
+            // Child widget should be a TerminalDisplay
+            auto *display = qobject_cast<TerminalDisplay *>(childWidget);
+            if (display) {
+                pairs.append(qMakePair(display, child.pane));
+            }
+        } else {
+            // Child widget should be a ViewSplitter
+            auto *childSplitter = qobject_cast<ViewSplitter *>(childWidget);
+            collectDisplayPanePairs(child, childSplitter, pairs);
+        }
+    }
+}
+
+// Find the pane splitter tab in the container that matches the expected pane count.
+ViewSplitter *findPaneSplitter(TabbedViewContainer *container, int expectedPanes)
+{
+    for (int i = 0; i < container->count(); ++i) {
+        auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == expectedPanes) {
+                return splitter;
+            }
+        }
+    }
+    return nullptr;
+}
+
+// Compute the pixel size a TerminalDisplay needs so that calcGeometry()
+// will yield the given columns and lines.
+// Uses TerminalDisplay::setSize() as a base, then adds the highlight scrolled
+// lines width that setSize() doesn't account for but calcGeometry() subtracts.
+QSize displayPixelSize(TerminalDisplay *display, int columns, int lines)
+{
+    // Save original values
+    int origCols = display->columns();
+    int origLines = display->lines();
+
+    // setSize(columns, lines) computes the pixel size and stores it in _size
+    display->setSize(columns, lines);
+    QSize result = display->sizeHint();
+
+    // Restore original
+    display->setSize(origCols, origLines);
+
+    // setSize() doesn't account for HighlightScrolledLines width, but calcGeometry()
+    // subtracts it from the content rect. HIGHLIGHT_SCROLLED_LINES_WIDTH = 3 per side.
+    // Add this to prevent losing columns due to the mismatch.
+    static const int HIGHLIGHT_SCROLLED_LINES_WIDTH = 3;
+    result.setWidth(result.width() + 2 * HIGHLIGHT_SCROLLED_LINES_WIDTH);
+
+    return result;
 }
 
 // Verify splitter tree structure matches layout spec
@@ -760,6 +853,54 @@ void attachKonsole(const QString &tmuxPath, const QString &sessionName, AttachRe
     QTRY_VERIFY_WITH_TIMEOUT(result.container && result.container->count() >= 2, 10000);
 }
 
+void applyKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gatewaySession)
+{
+    auto *container = vm->activeContainer();
+    QVERIFY(container);
+
+    int expectedPanes = countPanes(spec.layout);
+    ViewSplitter *paneSplitter = findPaneSplitter(container, expectedPanes);
+    QVERIFY2(paneSplitter,
+             qPrintable(QStringLiteral("Expected a ViewSplitter with %1 TerminalDisplay children").arg(expectedPanes)));
+
+    // Get font metrics from the first TerminalDisplay
+    auto *firstDisplay = paneSplitter->findChildren<TerminalDisplay *>().first();
+    QVERIFY(firstDisplay);
+    QVERIFY(firstDisplay->terminalFont()->fontWidth() > 0);
+    QVERIFY(firstDisplay->terminalFont()->fontHeight() > 0);
+
+    // Collect all (display, pane) pairs
+    QList<QPair<TerminalDisplay *, PaneSpec>> pairs;
+    if (spec.layout.type == LayoutSpec::Leaf) {
+        pairs.append(qMakePair(firstDisplay, spec.layout.pane));
+    } else {
+        collectDisplayPanePairs(spec.layout, paneSplitter, pairs);
+    }
+
+    // Resize each display individually and send resize events.
+    // This approach works even when the widget isn't shown (offscreen tests).
+    for (const auto &pair : pairs) {
+        auto *display = pair.first;
+        int cols = pair.second.columns.value_or(80);
+        int lns = pair.second.lines.value_or(24);
+        QSize targetSize = displayPixelSize(display, cols, lns);
+        QSize oldSize = display->size();
+        display->resize(targetSize);
+        QResizeEvent resizeEvent(targetSize, oldSize);
+        QCoreApplication::sendEvent(display, &resizeEvent);
+    }
+    QCoreApplication::processEvents();
+
+    // Handle focus
+    for (const auto &pair : pairs) {
+        if (pair.second.focused.has_value() && pair.second.focused.value()) {
+            pair.first->setFocus();
+        }
+    }
+
+    Q_UNUSED(gatewaySession)
+}
+
 void assertKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gatewaySession)
 {
     auto *container = vm->activeContainer();
@@ -792,6 +933,46 @@ void assertKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gate
     // Verify structure matches layout tree
     if (spec.layout.type != LayoutSpec::Leaf) {
         QVERIFY2(verifySplitterStructure(spec.layout, paneSplitter), "ViewSplitter tree structure does not match diagram");
+    }
+
+    // Collect (display, pane) pairs and verify dimensions and focus
+    QList<QPair<TerminalDisplay *, PaneSpec>> pairs;
+    if (spec.layout.type == LayoutSpec::Leaf) {
+        // Single pane: the splitter should contain exactly one TerminalDisplay
+        auto displays = paneSplitter->findChildren<TerminalDisplay *>();
+        QVERIFY(!displays.isEmpty());
+        pairs.append(qMakePair(displays.first(), spec.layout.pane));
+    } else {
+        collectDisplayPanePairs(spec.layout, paneSplitter, pairs);
+    }
+
+    // Verify dimensions for each leaf pane
+    for (const auto &pair : pairs) {
+        auto *display = pair.first;
+        const auto &pane = pair.second;
+
+        if (pane.columns.has_value()) {
+            QVERIFY2(display->columns() == pane.columns.value(),
+                     qPrintable(QStringLiteral("Display columns %1 != expected %2 (pane id: %3)")
+                                    .arg(display->columns())
+                                    .arg(pane.columns.value())
+                                    .arg(pane.id)));
+        }
+        if (pane.lines.has_value()) {
+            QVERIFY2(display->lines() == pane.lines.value(),
+                     qPrintable(QStringLiteral("Display lines %1 != expected %2 (pane id: %3)")
+                                    .arg(display->lines())
+                                    .arg(pane.lines.value())
+                                    .arg(pane.id)));
+        }
+    }
+
+    // Verify focus
+    for (const auto &pair : pairs) {
+        if (pair.second.focused.has_value() && pair.second.focused.value()) {
+            QVERIFY2(pair.first->hasFocus(),
+                     qPrintable(QStringLiteral("Pane '%1' should have focus but doesn't").arg(pair.second.id)));
+        }
     }
 
     // Check tab title if specified

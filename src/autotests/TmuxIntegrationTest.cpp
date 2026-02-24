@@ -196,7 +196,7 @@ void TmuxIntegrationTest::testTmuxTwoPaneSplitAttach()
     TmuxTestDSL::AttachResult attach;
     TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
-    TmuxTestDSL::assertKonsoleLayout(TmuxTestDSL::parse(QStringLiteral(R"(
+    auto layoutSpec = TmuxTestDSL::parse(QStringLiteral(R"(
         ┌────────────────────────────────────────┬────────────────────────────────────────┐
         │                                        │                                        │
         │                                        │                                        │
@@ -209,7 +209,10 @@ void TmuxIntegrationTest::testTmuxTwoPaneSplitAttach()
         │                                        │                                        │
         │                                        │                                        │
         └────────────────────────────────────────┴────────────────────────────────────────┘
-    )")), attach.mw->viewManager(), attach.gatewaySession);
+    )"));
+
+    TmuxTestDSL::applyKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
+    TmuxTestDSL::assertKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
 
     // Clean up: close pane sessions, then gateway
     const auto sessions = attach.mw->viewManager()->sessions();
@@ -438,6 +441,23 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
 
     TmuxTestDSL::AttachResult attach;
     TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    // Apply the initial layout to set Konsole widget sizes to match the diagram
+    auto initialLayout = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::applyKonsoleLayout(initialLayout, attach.mw->viewManager(), attach.gatewaySession);
 
     // Find the split pane splitter
     ViewSplitter *paneSplitter = nullptr;
