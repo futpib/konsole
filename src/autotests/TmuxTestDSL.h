@@ -46,9 +46,6 @@ struct LayoutSpec {
 
 struct DiagramSpec {
     LayoutSpec layout;
-    std::optional<QPair<int, int>> size; // cols x rows
-    std::optional<int> paneCount;
-    std::optional<QString> orientation;
     std::optional<QString> tab;
     std::optional<QList<int>> ratio;
 };
@@ -89,6 +86,9 @@ QString findTmuxOrSkip();
 
 // Count total leaf panes in a LayoutSpec tree.
 int countPanes(const LayoutSpec &layout);
+
+// Compute total window size from the layout tree (columns, lines).
+QPair<int, int> computeWindowSize(const LayoutSpec &layout);
 
 } // namespace TmuxTestDSL
 

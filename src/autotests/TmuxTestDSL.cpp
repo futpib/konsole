@@ -261,6 +261,15 @@ TmuxTestDSL::LayoutSpec parseRegion(const QStringList &lines, int top, int left,
     TmuxTestDSL::LayoutSpec spec;
     spec.type = TmuxTestDSL::LayoutSpec::Leaf;
     spec.pane = parseAnnotations(lines, top, left, bottom, right);
+
+    // Auto-populate columns/lines from box interior dimensions if not explicitly set
+    if (!spec.pane.columns.has_value()) {
+        spec.pane.columns = right - left - 1;
+    }
+    if (!spec.pane.lines.has_value()) {
+        spec.pane.lines = bottom - top - 1;
+    }
+
     return spec;
 }
 
@@ -281,16 +290,7 @@ void parseFooter(const QStringList &footerLines, TmuxTestDSL::DiagramSpec &spec)
         QString key = trimmed.left(colonPos).trimmed().toLower();
         QString value = trimmed.mid(colonPos + 1).trimmed();
 
-        if (key == QStringLiteral("size")) {
-            QStringList parts = value.split(QLatin1Char('x'));
-            if (parts.size() == 2) {
-                spec.size = qMakePair(parts[0].toInt(), parts[1].toInt());
-            }
-        } else if (key == QStringLiteral("panes")) {
-            spec.paneCount = value.toInt();
-        } else if (key == QStringLiteral("orientation")) {
-            spec.orientation = value;
-        } else if (key == QStringLiteral("tab")) {
+        if (key == QStringLiteral("tab")) {
             spec.tab = value;
         } else if (key == QStringLiteral("ratio")) {
             QStringList parts = value.split(QLatin1Char(':'));
@@ -299,6 +299,18 @@ void parseFooter(const QStringList &footerLines, TmuxTestDSL::DiagramSpec &spec)
                 ratioValues.append(p.trimmed().toInt());
             }
             spec.ratio = ratioValues;
+        }
+    }
+}
+
+// Collect all pane dimensions (columns, lines) from leaf nodes in order
+void collectPaneDimensions(const TmuxTestDSL::LayoutSpec &layout, QList<QPair<int, int>> &dims)
+{
+    if (layout.type == TmuxTestDSL::LayoutSpec::Leaf) {
+        dims.append(qMakePair(layout.pane.columns.value_or(80), layout.pane.lines.value_or(24)));
+    } else {
+        for (const auto &child : layout.children) {
+            collectPaneDimensions(child, dims);
         }
     }
 }
@@ -429,6 +441,41 @@ int countPanes(const LayoutSpec &layout)
     return count;
 }
 
+QPair<int, int> computeWindowSize(const LayoutSpec &layout)
+{
+    if (layout.type == LayoutSpec::Leaf) {
+        return qMakePair(layout.pane.columns.value_or(80), layout.pane.lines.value_or(24));
+    }
+
+    if (layout.type == LayoutSpec::HSplit) {
+        // Sum widths + (N-1) separators, max height
+        int totalWidth = 0;
+        int maxHeight = 0;
+        for (int i = 0; i < layout.children.size(); ++i) {
+            auto childSize = computeWindowSize(layout.children[i]);
+            totalWidth += childSize.first;
+            if (i > 0) {
+                totalWidth += 1; // separator column
+            }
+            maxHeight = qMax(maxHeight, childSize.second);
+        }
+        return qMakePair(totalWidth, maxHeight);
+    }
+
+    // VSplit: max width, sum heights + (N-1) separators
+    int maxWidth = 0;
+    int totalHeight = 0;
+    for (int i = 0; i < layout.children.size(); ++i) {
+        auto childSize = computeWindowSize(layout.children[i]);
+        maxWidth = qMax(maxWidth, childSize.first);
+        totalHeight += childSize.second;
+        if (i > 0) {
+            totalHeight += 1; // separator row
+        }
+    }
+    return qMakePair(maxWidth, totalHeight);
+}
+
 DiagramSpec parse(const QString &diagram)
 {
     QStringList lines = dedentLines(diagram);
@@ -483,10 +530,9 @@ void setupTmuxSession(const DiagramSpec &spec, const QString &tmuxPath, SessionC
     // Build new-session arguments
     QStringList args = {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), ctx.sessionName};
 
-    if (spec.size.has_value()) {
-        args << QStringLiteral("-x") << QString::number(spec.size->first);
-        args << QStringLiteral("-y") << QString::number(spec.size->second);
-    }
+    auto windowSize = computeWindowSize(spec.layout);
+    args << QStringLiteral("-x") << QString::number(windowSize.first);
+    args << QStringLiteral("-y") << QString::number(windowSize.second);
 
     args << firstCmd;
 
@@ -634,8 +680,38 @@ void setupTmuxSession(const DiagramSpec &spec, const QString &tmuxPath, SessionC
         }
     }
 
-    // Post-setup verification: check pane count
+    // Resize each pane to its exact specified dimensions
     {
+        QList<QPair<int, int>> expectedDims;
+        collectPaneDimensions(spec.layout, expectedDims);
+
+        QProcess tmuxListPanes;
+        tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                       QStringLiteral("-F"), QStringLiteral("#{pane_index}")});
+        QVERIFY(tmuxListPanes.waitForFinished(5000));
+        QCOMPARE(tmuxListPanes.exitCode(), 0);
+        QStringList paneIndices = QString::fromUtf8(tmuxListPanes.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+
+        int expectedPanes = countPanes(spec.layout);
+        QCOMPARE(paneIndices.size(), expectedPanes);
+
+        for (int i = 0; i < expectedPanes; ++i) {
+            int paneIndex = paneIndices[i].trimmed().toInt();
+            QProcess resize;
+            resize.start(tmuxPath, {QStringLiteral("resize-pane"),
+                                    QStringLiteral("-t"), QStringLiteral("%1:%2.%3").arg(ctx.sessionName).arg(0).arg(paneIndex),
+                                    QStringLiteral("-x"), QString::number(expectedDims[i].first),
+                                    QStringLiteral("-y"), QString::number(expectedDims[i].second)});
+            QVERIFY2(resize.waitForFinished(5000), qPrintable(QStringLiteral("resize-pane timed out for pane %1").arg(paneIndex)));
+            QCOMPARE(resize.exitCode(), 0);
+        }
+    }
+
+    // Post-setup verification: assert exact pane dimensions
+    {
+        QList<QPair<int, int>> expectedDims;
+        collectPaneDimensions(spec.layout, expectedDims);
+
         QProcess tmuxListPanes;
         tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
                                        QStringLiteral("-F"), QStringLiteral("#{pane_width} #{pane_height}")});
@@ -645,6 +721,15 @@ void setupTmuxSession(const DiagramSpec &spec, const QString &tmuxPath, SessionC
 
         int expectedPanes = countPanes(spec.layout);
         QCOMPARE(paneLines.size(), expectedPanes);
+
+        for (int i = 0; i < paneLines.size(); ++i) {
+            QStringList parts = paneLines[i].split(QLatin1Char(' '));
+            QCOMPARE(parts.size(), 2);
+            int actualWidth = parts[0].toInt();
+            int actualHeight = parts[1].toInt();
+            QCOMPARE(actualWidth, expectedDims[i].first);
+            QCOMPARE(actualHeight, expectedDims[i].second);
+        }
     }
 
 }
@@ -682,7 +767,7 @@ void assertKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gate
 
     // Find the pane tab (the one with a ViewSplitter containing TerminalDisplays, not the gateway)
     ViewSplitter *paneSplitter = nullptr;
-    int expectedPanes = spec.paneCount.value_or(countPanes(spec.layout));
+    int expectedPanes = countPanes(spec.layout);
 
     for (int i = 0; i < container->count(); ++i) {
         auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
@@ -698,21 +783,15 @@ void assertKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gate
     QVERIFY2(paneSplitter,
              qPrintable(QStringLiteral("Expected a ViewSplitter with %1 TerminalDisplay children").arg(expectedPanes)));
 
-    // Check orientation if specified
-    if (spec.orientation.has_value()) {
-        Qt::Orientation expected = (spec.orientation.value() == QStringLiteral("horizontal")) ? Qt::Horizontal : Qt::Vertical;
+    // Check orientation derived from layout type
+    if (spec.layout.type != LayoutSpec::Leaf) {
+        Qt::Orientation expected = (spec.layout.type == LayoutSpec::HSplit) ? Qt::Horizontal : Qt::Vertical;
         QCOMPARE(paneSplitter->orientation(), expected);
     }
 
     // Verify structure matches layout tree
     if (spec.layout.type != LayoutSpec::Leaf) {
         QVERIFY2(verifySplitterStructure(spec.layout, paneSplitter), "ViewSplitter tree structure does not match diagram");
-    }
-
-    // Check pane count
-    if (spec.paneCount.has_value()) {
-        auto terminals = paneSplitter->findChildren<TerminalDisplay *>();
-        QCOMPARE(terminals.size(), spec.paneCount.value());
     }
 
     // Check tab title if specified
@@ -740,19 +819,7 @@ void assertTmuxLayout(const DiagramSpec &spec, const QString &tmuxPath, const QS
     QCOMPARE(tmuxListPanes.exitCode(), 0);
     QStringList paneLines = QString::fromUtf8(tmuxListPanes.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
 
-    int expectedPanes = spec.paneCount.value_or(countPanes(spec.layout));
-    QCOMPARE(paneLines.size(), expectedPanes);
-
-    if (spec.size.has_value()) {
-        QProcess checkWindow;
-        checkWindow.start(tmuxPath, {QStringLiteral("list-windows"), QStringLiteral("-t"), sessionName,
-                                     QStringLiteral("-F"), QStringLiteral("#{window_width} #{window_height}")});
-        QVERIFY(checkWindow.waitForFinished(3000));
-        QStringList windowSize = QString::fromUtf8(checkWindow.readAllStandardOutput()).trimmed().split(QLatin1Char(' '));
-        QCOMPARE(windowSize.size(), 2);
-        // Window dimensions may not exactly match due to tmux separator columns,
-        // but should be close to what was requested
-    }
+    QCOMPARE(paneLines.size(), countPanes(spec.layout));
 }
 
 void killTmuxSession(const QString &tmuxPath, const QString &sessionName)

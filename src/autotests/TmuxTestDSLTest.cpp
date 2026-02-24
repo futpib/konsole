@@ -15,26 +15,34 @@ using namespace Konsole::TmuxTestDSL;
 void TmuxTestDSLTest::testParseSinglePane()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┐
-        │ id: A    │
-        │ cmd:     │
-        │ sleep 30 │
-        └──────────┘
+        ┌────────────────────────────────────────┐
+        │ id: A                                  │
+        │ cmd:                                   │
+        │ sleep 30                               │
+        │                                        │
+        │                                        │
+        └────────────────────────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::Leaf);
     QCOMPARE(spec.layout.pane.id, QStringLiteral("A"));
     QCOMPARE(spec.layout.pane.cmd, QStringLiteral("sleep 30"));
+    QVERIFY(spec.layout.pane.columns.has_value());
+    QCOMPARE(spec.layout.pane.columns.value(), 40);
+    QVERIFY(spec.layout.pane.lines.has_value());
+    QCOMPARE(spec.layout.pane.lines.value(), 5);
 }
 
 void TmuxTestDSLTest::testParseTwoHorizontalPanes()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │ id: L    │ id: R    │
-        │ cmd:     │ cmd:     │
-        │ sleep 30 │ sleep 30 │
-        └──────────┴──────────┘
+        ┌────────────────────┬────────────────────┐
+        │ id: L              │ id: R              │
+        │ cmd:               │ cmd:               │
+        │ sleep 30           │ sleep 30           │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::HSplit);
@@ -43,24 +51,32 @@ void TmuxTestDSLTest::testParseTwoHorizontalPanes()
     QCOMPARE(spec.layout.children[0].type, LayoutSpec::Leaf);
     QCOMPARE(spec.layout.children[0].pane.id, QStringLiteral("L"));
     QCOMPARE(spec.layout.children[0].pane.cmd, QStringLiteral("sleep 30"));
+    QCOMPARE(spec.layout.children[0].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[0].pane.lines.value(), 5);
 
     QCOMPARE(spec.layout.children[1].type, LayoutSpec::Leaf);
     QCOMPARE(spec.layout.children[1].pane.id, QStringLiteral("R"));
     QCOMPARE(spec.layout.children[1].pane.cmd, QStringLiteral("sleep 30"));
+    QCOMPARE(spec.layout.children[1].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[1].pane.lines.value(), 5);
 }
 
 void TmuxTestDSLTest::testParseTwoVerticalPanes()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┐
-        │ id: T    │
-        │ cmd:     │
-        │ sleep 30 │
-        ├──────────┤
-        │ id: B    │
-        │ cmd:     │
-        │ sleep 30 │
-        └──────────┘
+        ┌────────────────────┐
+        │ id: T              │
+        │ cmd:               │
+        │ sleep 30           │
+        │                    │
+        │                    │
+        ├────────────────────┤
+        │ id: B              │
+        │ cmd:               │
+        │ sleep 30           │
+        │                    │
+        │                    │
+        └────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::VSplit);
@@ -68,68 +84,72 @@ void TmuxTestDSLTest::testParseTwoVerticalPanes()
 
     QCOMPARE(spec.layout.children[0].type, LayoutSpec::Leaf);
     QCOMPARE(spec.layout.children[0].pane.id, QStringLiteral("T"));
+    QCOMPARE(spec.layout.children[0].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[0].pane.lines.value(), 5);
 
     QCOMPARE(spec.layout.children[1].type, LayoutSpec::Leaf);
     QCOMPARE(spec.layout.children[1].pane.id, QStringLiteral("B"));
+    QCOMPARE(spec.layout.children[1].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[1].pane.lines.value(), 5);
 }
 
 void TmuxTestDSLTest::testParseNestedLayout()
 {
     // [ L | [ RT / RB ] ]
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │ id: L    │ id: RT   │
-        │ cmd:     │ cmd:     │
-        │ sleep 60 │ sleep 60 │
-        │          ├──────────┤
-        │          │ id: RB   │
-        │          │ cmd:     │
-        │          │ sleep 60 │
-        └──────────┴──────────┘
-        size: 160x40
+        ┌────────────────────┬────────────────────┐
+        │ id: L              │ id: RT             │
+        │ cmd:               │ cmd:               │
+        │ sleep 60           │ sleep 60           │
+        │                    │                    │
+        │                    │                    │
+        │                    ├────────────────────┤
+        │                    │ id: RB             │
+        │                    │ cmd:               │
+        │                    │ sleep 60           │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::HSplit);
     QCOMPARE(spec.layout.children.size(), 2);
 
-    // Left child is a leaf
+    // Left child is a leaf with full height (11 = 5 + 1 + 5)
     QCOMPARE(spec.layout.children[0].type, LayoutSpec::Leaf);
     QCOMPARE(spec.layout.children[0].pane.id, QStringLiteral("L"));
+    QCOMPARE(spec.layout.children[0].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[0].pane.lines.value(), 11);
 
     // Right child is a VSplit
     QCOMPARE(spec.layout.children[1].type, LayoutSpec::VSplit);
     QCOMPARE(spec.layout.children[1].children.size(), 2);
     QCOMPARE(spec.layout.children[1].children[0].pane.id, QStringLiteral("RT"));
+    QCOMPARE(spec.layout.children[1].children[0].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[1].children[0].pane.lines.value(), 5);
     QCOMPARE(spec.layout.children[1].children[1].pane.id, QStringLiteral("RB"));
+    QCOMPARE(spec.layout.children[1].children[1].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[1].children[1].pane.lines.value(), 5);
 
-    // Footer
-    QVERIFY(spec.size.has_value());
-    QCOMPARE(spec.size->first, 160);
-    QCOMPARE(spec.size->second, 40);
+    // Computed window size should be 20+1+20 = 41 x 11
+    auto windowSize = computeWindowSize(spec.layout);
+    QCOMPARE(windowSize.first, 41);
+    QCOMPARE(windowSize.second, 11);
 }
 
 void TmuxTestDSLTest::testParseFooterMetadata()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │          │          │
-        └──────────┴──────────┘
-        size: 180x40
-        panes: 2
-        orientation: horizontal
+        ┌────────────────────┬────────────────────┐
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
         tab: bash
         ratio: 3:1
     )"));
-
-    QVERIFY(spec.size.has_value());
-    QCOMPARE(spec.size->first, 180);
-    QCOMPARE(spec.size->second, 40);
-
-    QVERIFY(spec.paneCount.has_value());
-    QCOMPARE(spec.paneCount.value(), 2);
-
-    QVERIFY(spec.orientation.has_value());
-    QCOMPARE(spec.orientation.value(), QStringLiteral("horizontal"));
 
     QVERIFY(spec.tab.has_value());
     QCOMPARE(spec.tab.value(), QStringLiteral("bash"));
@@ -142,16 +162,17 @@ void TmuxTestDSLTest::testParseFooterMetadata()
 
 void TmuxTestDSLTest::testParsePaneAnnotations()
 {
+    // Explicit columns/lines annotations override box geometry
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────────────┐
-        │ id: main         │
-        │ cmd: sleep 30    │
-        │ contains: MARKER │
-        │ focused: true    │
-        │ columns: 80      │
-        │ lines: 24        │
-        │ title: bash      │
-        └──────────────────┘
+        ┌────────────────────┐
+        │ id: main           │
+        │ cmd: sleep 30      │
+        │ contains: MARKER   │
+        │ focused: true      │
+        │ columns: 80        │
+        │ lines: 24          │
+        │ title: bash        │
+        └────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::Leaf);
@@ -162,6 +183,7 @@ void TmuxTestDSLTest::testParsePaneAnnotations()
     QCOMPARE(pane.contains[0], QStringLiteral("MARKER"));
     QVERIFY(pane.focused.has_value());
     QCOMPARE(pane.focused.value(), true);
+    // Explicit annotations override box geometry (box is 20x7)
     QVERIFY(pane.columns.has_value());
     QCOMPARE(pane.columns.value(), 80);
     QVERIFY(pane.lines.has_value());
@@ -172,11 +194,13 @@ void TmuxTestDSLTest::testParsePaneAnnotations()
 void TmuxTestDSLTest::testParseMultilineCommand()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┐
-        │ id: A    │
-        │ cmd:     │
-        │ sleep 30 │
-        └──────────┘
+        ┌────────────────────────────────────────┐
+        │ id: A                                  │
+        │ cmd:                                   │
+        │ sleep 30                               │
+        │                                        │
+        │                                        │
+        └────────────────────────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.pane.cmd, QStringLiteral("sleep 30"));
@@ -186,11 +210,19 @@ void TmuxTestDSLTest::testParseFourPaneGrid()
 {
     // [ [ TL / BL ] | [ TR / BR ] ]
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │ id: TL   │ id: TR   │
-        ├──────────┼──────────┤
-        │ id: BL   │ id: BR   │
-        └──────────┴──────────┘
+        ┌────────────────────┬────────────────────┐
+        │ id: TL             │ id: TR             │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        ├────────────────────┼────────────────────┤
+        │ id: BL             │ id: BR             │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::HSplit);
@@ -212,9 +244,13 @@ void TmuxTestDSLTest::testParseFourPaneGrid()
 void TmuxTestDSLTest::testParseThreeHorizontalPanes()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────┬──────┬──────┐
-        │ id:A │ id:B │ id:C │
-        └──────┴──────┴──────┘
+        ┌────────────────────┬────────────────────┬────────────────────┐
+        │ id: A              │ id: B              │ id: C              │
+        │                    │                    │                    │
+        │                    │                    │                    │
+        │                    │                    │                    │
+        │                    │                    │                    │
+        └────────────────────┴────────────────────┴────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::HSplit);
@@ -227,30 +263,42 @@ void TmuxTestDSLTest::testParseThreeHorizontalPanes()
 void TmuxTestDSLTest::testParseEmptyPanes()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │          │          │
-        └──────────┴──────────┘
-        orientation: horizontal
-        panes: 2
+        ┌────────────────────┬────────────────────┐
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
     )"));
 
     QCOMPARE(spec.layout.type, LayoutSpec::HSplit);
     QCOMPARE(spec.layout.children.size(), 2);
     QCOMPARE(spec.layout.children[0].type, LayoutSpec::Leaf);
     QCOMPARE(spec.layout.children[1].type, LayoutSpec::Leaf);
-    // Panes should have empty annotations
+    // Panes should have empty annotations (but columns/lines auto-populated)
     QVERIFY(spec.layout.children[0].pane.id.isEmpty());
     QVERIFY(spec.layout.children[1].pane.id.isEmpty());
+    QCOMPARE(spec.layout.children[0].pane.columns.value(), 20);
+    QCOMPARE(spec.layout.children[0].pane.lines.value(), 5);
 }
 
 void TmuxTestDSLTest::testCountPanes()
 {
     auto spec = parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │ id: L    │ id: RT   │
-        │          ├──────────┤
-        │          │ id: RB   │
-        └──────────┴──────────┘
+        ┌────────────────────┬────────────────────┐
+        │ id: L              │ id: RT             │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    ├────────────────────┤
+        │                    │ id: RB             │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
     )"));
 
     QCOMPARE(countPanes(spec.layout), 3);

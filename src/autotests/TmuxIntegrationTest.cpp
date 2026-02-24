@@ -131,10 +131,18 @@ void TmuxIntegrationTest::testTmuxControlModeAttach()
 
     TmuxTestDSL::SessionContext ctx;
     TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
-        ┌──────────┐
-        │ cmd:     │
-        │ sleep 30 │
-        └──────────┘
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: sleep 30                                                                  │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
     )")), tmuxPath, ctx);
     auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
@@ -170,11 +178,18 @@ void TmuxIntegrationTest::testTmuxTwoPaneSplitAttach()
 
     TmuxTestDSL::SessionContext ctx;
     TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │ cmd:     │ cmd:     │
-        │ sleep 30 │ sleep 30 │
-        └──────────┴──────────┘
-        size: 180x40
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 30                          │ cmd: sleep 30                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
     )")), tmuxPath, ctx);
     auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
@@ -182,9 +197,18 @@ void TmuxIntegrationTest::testTmuxTwoPaneSplitAttach()
     TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     TmuxTestDSL::assertKonsoleLayout(TmuxTestDSL::parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │          │          │
-        └──────────┴──────────┘
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
     )")), attach.mw->viewManager(), attach.gatewaySession);
 
     // Clean up: close pane sessions, then gateway
@@ -385,11 +409,18 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
 
     TmuxTestDSL::SessionContext ctx;
     TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │ cmd:     │ cmd:     │
-        │ sleep 60 │ sleep 60 │
-        └──────────┴──────────┘
-        size: 160x40
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
     )")), tmuxPath, ctx);
     auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
@@ -609,11 +640,18 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPane()
 
     TmuxTestDSL::SessionContext ctx;
     TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
-        ┌──────────┐
-        │ cmd:     │
-        │ sleep 60 │
-        └──────────┘
-        size: 160x40
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: sleep 60                                                                  │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
     )")), tmuxPath, ctx);
     auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
@@ -698,12 +736,18 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     // Create 3 horizontal panes, select pane 0, then split it vertically from Konsole
     TmuxTestDSL::SessionContext ctx;
     TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
-        ┌──────┬──────┬──────┐
-        │ cmd: │ cmd: │ cmd: │
-        │ sleep│ sleep│ sleep│
-        │  60  │  60  │  60  │
-        └──────┴──────┴──────┘
-        size: 160x40
+        ┌────────────────────────────────────────┬────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                          │ cmd: sleep 60                          │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        │                                        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┴────────────────────────────────────────┘
     )")), tmuxPath, ctx);
     auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
@@ -810,14 +854,18 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     // Create nested layout: [ pane0 | [ pane1 / pane2 ] ]
     TmuxTestDSL::SessionContext ctx;
     TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
-        ┌──────────┬──────────┐
-        │ cmd:     │ cmd:     │
-        │ sleep 60 │ sleep 60 │
-        │          ├──────────┤
-        │          │ cmd:     │
-        │          │ sleep 60 │
-        └──────────┴──────────┘
-        size: 160x40
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        ├────────────────────────────────────────┤
+        │                                        │ cmd: sleep 60                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
     )")), tmuxPath, ctx);
     auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
