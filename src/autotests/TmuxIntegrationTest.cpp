@@ -34,6 +34,23 @@
 
 using namespace Konsole;
 
+void TmuxIntegrationTest::initTestCase()
+{
+    QVERIFY(m_tmuxTmpDir.isValid());
+    qputenv("TMUX_TMPDIR", m_tmuxTmpDir.path().toUtf8());
+}
+
+void TmuxIntegrationTest::cleanupTestCase()
+{
+    // Kill any leftover tmux server in our isolated socket directory
+    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
+    if (!tmuxPath.isEmpty()) {
+        QProcess kill;
+        kill.start(tmuxPath, {QStringLiteral("kill-server")});
+        kill.waitForFinished(5000);
+    }
+}
+
 void TmuxIntegrationTest::testTmuxControlModeExitCleanup()
 {
     const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
@@ -244,31 +261,23 @@ static QString readSessionScreenText(Session *session)
 
 void TmuxIntegrationTest::testTmuxAttachContentRecovery()
 {
-    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
-    if (tmuxPath.isEmpty()) {
-        QSKIP("tmux command not found.");
-    }
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
 
-    const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
-    if (bashPath.isEmpty()) {
-        QSKIP("bash command not found.");
-    }
-
-    // Create a detached tmux session running bash with a known size
-    const QString sessionName = QStringLiteral("konsole-content-test-%1").arg(QCoreApplication::applicationPid());
-
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath,
-                         {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
-                          QStringLiteral("-x"), QStringLiteral("80"), QStringLiteral("-y"), QStringLiteral("24"),
-                          bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, sessionName); });
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌───────────────────────────────────┐
+        │ cmd: bash --norc --noprofile      │
+        │                                   │
+        │                                   │
+        │                                   │
+        │                                   │
+        └───────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
     // Send a command with Unicode output
     QProcess sendKeys;
-    sendKeys.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), sessionName,
+    sendKeys.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
                               QStringLiteral("echo 'MARKER_START ★ Unicode → Test ✓ MARKER_END'"), QStringLiteral("Enter")});
     QVERIFY(sendKeys.waitForFinished(5000));
     QCOMPARE(sendKeys.exitCode(), 0);
@@ -278,7 +287,7 @@ void TmuxIntegrationTest::testTmuxAttachContentRecovery()
 
     // Now attach Konsole via -CC
     TmuxTestDSL::AttachResult attach;
-    TmuxTestDSL::attachKonsole(tmuxPath, sessionName, attach);
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Find the pane session (not the gateway)
     Session *paneSession = nullptr;
@@ -317,31 +326,28 @@ void TmuxIntegrationTest::testTmuxAttachContentRecovery()
 
 void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
 {
-    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
-    if (tmuxPath.isEmpty()) {
-        QSKIP("tmux command not found.");
-    }
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
 
-    const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
-    if (bashPath.isEmpty()) {
-        QSKIP("bash command not found.");
-    }
-
-    // Create a detached tmux session running bash with a complex PS1 prompt
-    const QString sessionName = QStringLiteral("konsole-prompt-test-%1").arg(QCoreApplication::applicationPid());
-
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath,
-                         {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
-                          QStringLiteral("-x"), QStringLiteral("240"), QStringLiteral("-y"), QStringLiteral("24"),
-                          bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, sessionName); });
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: bash --norc --noprofile                                                                                                                                                                                                                   │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        │                                                                                                                                                                                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
     // Set a complex PS1 prompt with ANSI colors and Unicode
     QProcess sendPS1;
-    sendPS1.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), sessionName,
+    sendPS1.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
                              QStringLiteral("PS1='\\[\\033[36m\\][\\t] [\\u@\\h \\w] \\[\\033[33m\\]────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── \\[\\033[35m\\]\\s \\V  \\[\\033[32m\\]→ \\[\\033[0m\\]'"),
                              QStringLiteral("Enter")});
     QVERIFY(sendPS1.waitForFinished(5000));
@@ -352,7 +358,7 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
 
     // Run a command so we have some content
     QProcess sendCmd;
-    sendCmd.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), sessionName,
+    sendCmd.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
                              QStringLiteral("echo 'PROMPT_TEST_OUTPUT'"), QStringLiteral("Enter")});
     QVERIFY(sendCmd.waitForFinished(5000));
     QCOMPARE(sendCmd.exitCode(), 0);
@@ -362,7 +368,7 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
 
     // Now attach Konsole via -CC
     TmuxTestDSL::AttachResult attach;
-    TmuxTestDSL::attachKonsole(tmuxPath, sessionName, attach);
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Find the pane session (not the gateway)
     Session *paneSession = nullptr;
@@ -572,39 +578,30 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
 
 void TmuxIntegrationTest::testTmuxPaneTitleInfo()
 {
-    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
-    if (tmuxPath.isEmpty()) {
-        QSKIP("tmux command not found.");
-    }
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
 
-    const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
-    if (bashPath.isEmpty()) {
-        QSKIP("bash command not found.");
-    }
-
-    // Create a detached tmux session running bash
-    // (Can't use DSL setupTmuxSession because we need bash as the command, not sleep)
-    const QString sessionName = QStringLiteral("konsole-title-test-%1").arg(QCoreApplication::applicationPid());
-
-    QProcess tmuxNewSession;
-    tmuxNewSession.start(tmuxPath,
-                         {QStringLiteral("new-session"), QStringLiteral("-d"), QStringLiteral("-s"), sessionName,
-                          QStringLiteral("-x"), QStringLiteral("80"), QStringLiteral("-y"), QStringLiteral("24"),
-                          bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
-    QVERIFY(tmuxNewSession.waitForFinished(5000));
-    QCOMPARE(tmuxNewSession.exitCode(), 0);
-    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, sessionName); });
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌───────────────────────────────────┐
+        │ cmd: bash --norc --noprofile      │
+        │                                   │
+        │                                   │
+        │                                   │
+        │                                   │
+        └───────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
 
     // cd to /tmp so we have a known directory
     QProcess sendCd;
-    sendCd.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), sessionName,
+    sendCd.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
                             QStringLiteral("cd /tmp"), QStringLiteral("Enter")});
     QVERIFY(sendCd.waitForFinished(5000));
     QCOMPARE(sendCd.exitCode(), 0);
     QTest::qWait(500);
 
     TmuxTestDSL::AttachResult attach;
-    TmuxTestDSL::attachKonsole(tmuxPath, sessionName, attach);
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
     // Find the pane session (not the gateway)
     Session *paneSession = nullptr;

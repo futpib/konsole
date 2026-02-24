@@ -610,7 +610,8 @@ DiagramSpec parse(const QString &diagram)
 
 void setupTmuxSession(const DiagramSpec &spec, const QString &tmuxPath, SessionContext &ctx)
 {
-    ctx.sessionName = QStringLiteral("konsole-dsl-test-%1").arg(QCoreApplication::applicationPid());
+    static int sessionCounter = 0;
+    ctx.sessionName = QStringLiteral("konsole-dsl-test-%1-%2").arg(QCoreApplication::applicationPid()).arg(sessionCounter++);
 
     // Collect all pane commands
     QStringList cmds;

@@ -8,6 +8,7 @@
 #define TMUXINTEGRATIONTEST_H
 
 #include <QObject>
+#include <QTemporaryDir>
 
 namespace Konsole
 {
@@ -16,6 +17,8 @@ class TmuxIntegrationTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void initTestCase();
+    void cleanupTestCase();
     void testTmuxControlModeExitCleanup();
     void testClosePaneTabThenGatewayTab();
     void testTmuxControlModeAttach();
@@ -27,6 +30,9 @@ private Q_SLOTS:
     void testSplitPaneFocusesNewPane();
     void testSplitPaneFocusesNewPaneComplexLayout();
     void testSplitPaneFocusesNewPaneNestedLayout();
+
+private:
+    QTemporaryDir m_tmuxTmpDir;
 };
 
 }
