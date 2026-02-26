@@ -30,6 +30,9 @@ private Q_SLOTS:
     void testSplitPaneFocusesNewPane();
     void testSplitPaneFocusesNewPaneComplexLayout();
     void testSplitPaneFocusesNewPaneNestedLayout();
+    void testResizePropagatedToPty();
+    void testForcedSizeFromSmallerClient();
+    void testForcedSizeFromSmallerClientMultiPane();
 
 private:
     QTemporaryDir m_tmuxTmpDir;

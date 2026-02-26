@@ -29,6 +29,7 @@
 #include "../tmux/TmuxLayoutManager.h"
 #include "../tmux/TmuxLayoutParser.h"
 #include "../tmux/TmuxPaneManager.h"
+#include "../widgets/TabPageWidget.h"
 #include "../widgets/ViewContainer.h"
 #include "../widgets/ViewSplitter.h"
 
@@ -468,7 +469,7 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     // Find the split pane splitter
     ViewSplitter *paneSplitter = nullptr;
     for (int i = 0; i < attach.container->count(); ++i) {
-        auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
+        auto *splitter = attach.container->viewSplitterAt(i);
         if (splitter) {
             auto terminals = splitter->findChildren<TerminalDisplay *>();
             if (terminals.size() == 2) {
@@ -708,7 +709,7 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPane()
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
         for (int i = 0; i < attach.container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
+            auto *splitter = attach.container->viewSplitterAt(i);
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 2) {
@@ -782,7 +783,7 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
         for (int i = 0; i < attach.container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
+            auto *splitter = attach.container->viewSplitterAt(i);
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 3) {
@@ -826,7 +827,7 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneComplexLayout()
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
         for (int i = 0; i < attach.container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
+            auto *splitter = attach.container->viewSplitterAt(i);
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 4) {
@@ -900,7 +901,7 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
         for (int i = 0; i < attach.container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
+            auto *splitter = attach.container->viewSplitterAt(i);
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 3) {
@@ -946,7 +947,7 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         paneSplitter = nullptr;
         for (int i = 0; i < attach.container->count(); ++i) {
-            auto *splitter = qobject_cast<ViewSplitter *>(attach.container->widget(i));
+            auto *splitter = attach.container->viewSplitterAt(i);
             if (splitter) {
                 auto terminals = splitter->findChildren<TerminalDisplay *>();
                 if (terminals.size() == 4) {
@@ -975,6 +976,486 @@ void TmuxIntegrationTest::testSplitPaneFocusesNewPaneNestedLayout()
     QTRY_VERIFY_WITH_TIMEOUT(newDisplay->hasFocus(), 5000);
 
     // Kill the tmux session first
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testResizePropagatedToPty()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // 1. Setup tmux session with a two-pane horizontal split running bash
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: bash                              │ cmd: bash                              │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+
+    // 2. Attach Konsole
+    auto initialLayout = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: bash                              │ cmd: bash                              │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+    TmuxTestDSL::applyKonsoleLayout(initialLayout, attach.mw->viewManager(), attach.gatewaySession);
+
+    // Find the two-pane splitter
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children");
+    QCOMPARE(paneSplitter->orientation(), Qt::Horizontal);
+
+    auto *leftDisplay = qobject_cast<TerminalDisplay *>(paneSplitter->widget(0));
+    auto *rightDisplay = qobject_cast<TerminalDisplay *>(paneSplitter->widget(1));
+    QVERIFY(leftDisplay);
+    QVERIFY(rightDisplay);
+
+    int initialLeftCols = leftDisplay->columns();
+    int initialRightCols = rightDisplay->columns();
+    qDebug() << "Initial columns: left=" << initialLeftCols << "right=" << initialRightCols;
+
+    // 3. Resize the splitter: make left pane significantly larger (3/4 vs 1/4)
+    QList<int> sizes = paneSplitter->sizes();
+    int total = sizes[0] + sizes[1];
+    int newLeft = total * 3 / 4;
+    int newRight = total - newLeft;
+    paneSplitter->setSizes({newLeft, newRight});
+
+    // Force display widgets to the new pixel sizes and send resize events
+    int displayHeight = leftDisplay->height();
+    leftDisplay->resize(newLeft, displayHeight);
+    rightDisplay->resize(newRight, displayHeight);
+    QResizeEvent leftResizeEvent(QSize(newLeft, displayHeight), leftDisplay->size());
+    QResizeEvent rightResizeEvent(QSize(newRight, displayHeight), rightDisplay->size());
+    QCoreApplication::sendEvent(leftDisplay, &leftResizeEvent);
+    QCoreApplication::sendEvent(rightDisplay, &rightResizeEvent);
+    QCoreApplication::processEvents();
+
+    // Trigger splitterMoved signal (setSizes doesn't emit it automatically)
+    Q_EMIT paneSplitter->splitterMoved(newLeft, 1);
+
+    int expectedLeftCols = leftDisplay->columns();
+    int expectedRightCols = rightDisplay->columns();
+    qDebug() << "After resize columns: left=" << expectedLeftCols << "right=" << expectedRightCols;
+
+    // Verify the resize actually produced different column counts
+    QVERIFY2(expectedLeftCols != expectedRightCols,
+             qPrintable(QStringLiteral("Expected different column counts but both are %1").arg(expectedLeftCols)));
+
+    // 4. Wait for tmux to process the layout change (metadata)
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_width}")});
+        check.waitForFinished(3000);
+        QStringList paneWidths = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+        if (paneWidths.size() != 2) return false;
+        return paneWidths[0].toInt() == expectedLeftCols && paneWidths[1].toInt() == expectedRightCols;
+    }(), 10000);
+
+    // 5. Run 'stty size' in each pane and verify PTY dimensions match.
+    // tmux defers TIOCSWINSZ (PTY resize) through its server loop, so we
+    // poll: send 'stty size', capture output, and re-send if needed.
+    int expectedLeftLines = leftDisplay->lines();
+    int expectedRightLines = rightDisplay->lines();
+    auto runSttyAndCheck = [&](const QString &paneTarget, int expectedLines, int expectedCols) -> bool {
+        // Send stty size
+        QProcess sendKeys;
+        sendKeys.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), paneTarget,
+                                  QStringLiteral("-l"), QStringLiteral("stty size\n")});
+        if (!sendKeys.waitForFinished(3000)) return false;
+        QTest::qWait(300);
+
+        // Capture and check
+        QProcess capture;
+        capture.start(tmuxPath, {QStringLiteral("capture-pane"), QStringLiteral("-t"), paneTarget,
+                                 QStringLiteral("-p")});
+        capture.waitForFinished(3000);
+        QString output = QString::fromUtf8(capture.readAllStandardOutput());
+        QString expected = QString::number(expectedLines) + QStringLiteral(" ") + QString::number(expectedCols);
+        return output.contains(expected);
+    };
+
+    QTRY_VERIFY_WITH_TIMEOUT(
+        runSttyAndCheck(ctx.sessionName + QStringLiteral(":0.0"), expectedLeftLines, expectedLeftCols),
+        10000);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        runSttyAndCheck(ctx.sessionName + QStringLiteral(":0.1"), expectedRightLines, expectedRightCols),
+        10000);
+
+    // Wait for any pending callbacks
+    QTest::qWait(500);
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testForcedSizeFromSmallerClient()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    const QString scriptPath = QStandardPaths::findExecutable(QStringLiteral("script"));
+    if (scriptPath.isEmpty()) {
+        QSKIP("script command not found.");
+    }
+
+    // 1. Setup tmux session with a single pane at 80x24
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: sleep 60                                                                  │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    // 2. Attach Konsole via control mode
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    // 3. Apply large layout so widgets are sized generously
+    auto layoutSpec = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::applyKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
+
+    // 4. Find the pane display and verify initial state
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    auto paneViews = paneSession->views();
+    QVERIFY(!paneViews.isEmpty());
+    auto *display = qobject_cast<TerminalDisplay *>(paneViews.first());
+    QVERIFY(display);
+
+    int initialColumns = display->columns();
+    int initialLines = display->lines();
+    QVERIFY2(initialColumns >= 40, qPrintable(QStringLiteral("Expected initial columns >= 40 but got %1").arg(initialColumns)));
+    QVERIFY2(initialLines >= 12, qPrintable(QStringLiteral("Expected initial lines >= 12 but got %1").arg(initialLines)));
+
+    // Record the widget pixel size before the smaller client attaches
+    QSize originalPixelSize = display->size();
+    qDebug() << "Initial display: columns=" << initialColumns << "lines=" << initialLines
+             << "pixelSize=" << originalPixelSize;
+
+    // 5. Attach a second smaller tmux client using script to provide a pty
+    QProcess scriptProc;
+    scriptProc.start(scriptPath, {
+        QStringLiteral("-q"),
+        QStringLiteral("-c"),
+        QStringLiteral("stty cols 40 rows 12; ") + tmuxPath + QStringLiteral(" attach -t ") + ctx.sessionName,
+        QStringLiteral("/dev/null"),
+    });
+    QVERIFY(scriptProc.waitForStarted(5000));
+
+    // Wait for the second client to actually appear in tmux
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-clients"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{client_width}x#{client_height}")});
+        check.waitForFinished(3000);
+        QStringList clients = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        return clients.size() >= 2;
+    }(), 10000);
+
+    // 6. Wait for %layout-change to propagate — poll display->columns() until it shrinks
+    QTRY_VERIFY_WITH_TIMEOUT(display->columns() < initialColumns, 15000);
+
+    // 7. Assert grid size matches the smaller client (40x12 minus status bar)
+    qDebug() << "After smaller client: columns=" << display->columns() << "lines=" << display->lines()
+             << "pixelSize=" << display->size();
+    QVERIFY2(display->columns() <= 40,
+             qPrintable(QStringLiteral("Expected columns <= 40 but got %1").arg(display->columns())));
+    QVERIFY2(display->lines() <= 12,
+             qPrintable(QStringLiteral("Expected lines <= 12 but got %1").arg(display->lines())));
+
+    // 8. Assert the TabPageWidget is constrained (the whole layout moves to top-left)
+    auto *topSplitter = qobject_cast<ViewSplitter *>(display->parentWidget());
+    QVERIFY(topSplitter);
+    while (auto *parentSplitter = qobject_cast<ViewSplitter *>(topSplitter->parentWidget())) {
+        topSplitter = parentSplitter;
+    }
+    auto *page = qobject_cast<TabPageWidget *>(topSplitter->parentWidget());
+    QVERIFY2(page, "Expected top-level splitter to be inside a TabPageWidget");
+    QVERIFY2(page->isConstrained(), "Expected TabPageWidget to be constrained");
+    QSize constrained = page->constrainedSize();
+    qDebug() << "TabPageWidget constrained:" << constrained << "display size:" << display->size();
+    QVERIFY2(constrained.width() < originalPixelSize.width()
+                 || constrained.height() < originalPixelSize.height(),
+             qPrintable(QStringLiteral("Expected constrained size smaller than %1x%2, got %3x%4")
+                            .arg(originalPixelSize.width()).arg(originalPixelSize.height())
+                            .arg(constrained.width()).arg(constrained.height())));
+
+    // 9. Cleanup: kill the background script process
+    scriptProc.terminate();
+    scriptProc.waitForFinished(5000);
+    if (scriptProc.state() != QProcess::NotRunning) {
+        scriptProc.kill();
+        scriptProc.waitForFinished(3000);
+    }
+
+    // Kill tmux session early to avoid layout-change during teardown
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testForcedSizeFromSmallerClientMultiPane()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    const QString scriptPath = QStandardPaths::findExecutable(QStringLiteral("script"));
+    if (scriptPath.isEmpty()) {
+        QSKIP("script command not found.");
+    }
+
+    // 1. Setup tmux session with two horizontal panes (40+1+39 = 80 wide, 24 tall)
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬───────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                         │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        └────────────────────────────────────────┴───────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    // 2. Attach Konsole via control mode
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    // 3. Apply large layout so widgets are sized generously
+    auto layoutSpec = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬───────────────────────────────────────┐
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        │                                        │                                       │
+        └────────────────────────────────────────┴───────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::applyKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
+
+    // 4. Find the splitter with 2 TerminalDisplay children
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children");
+
+    auto *leftDisplay = qobject_cast<TerminalDisplay *>(paneSplitter->widget(0));
+    auto *rightDisplay = qobject_cast<TerminalDisplay *>(paneSplitter->widget(1));
+    QVERIFY(leftDisplay);
+    QVERIFY(rightDisplay);
+
+    int initialLeftCols = leftDisplay->columns();
+    int initialLeftLines = leftDisplay->lines();
+    int initialRightCols = rightDisplay->columns();
+    int initialRightLines = rightDisplay->lines();
+    QSize originalLeftPixelSize = leftDisplay->size();
+    QSize originalRightPixelSize = rightDisplay->size();
+
+    qDebug() << "Initial left:" << initialLeftCols << "x" << initialLeftLines << "px=" << originalLeftPixelSize
+             << "right:" << initialRightCols << "x" << initialRightLines << "px=" << originalRightPixelSize;
+
+    QVERIFY2(initialLeftCols >= 20, qPrintable(QStringLiteral("Expected left columns >= 20 but got %1").arg(initialLeftCols)));
+    QVERIFY2(initialRightCols >= 20, qPrintable(QStringLiteral("Expected right columns >= 20 but got %1").arg(initialRightCols)));
+
+    // 5. Attach a second smaller tmux client using script to provide a pty
+    QProcess scriptProc;
+    scriptProc.start(scriptPath, {
+        QStringLiteral("-q"),
+        QStringLiteral("-c"),
+        QStringLiteral("stty cols 40 rows 12; ") + tmuxPath + QStringLiteral(" attach -t ") + ctx.sessionName,
+        QStringLiteral("/dev/null"),
+    });
+    QVERIFY(scriptProc.waitForStarted(5000));
+
+    // Wait for the second client to actually appear in tmux
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-clients"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{client_width}x#{client_height}")});
+        check.waitForFinished(3000);
+        QStringList clients = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        return clients.size() >= 2;
+    }(), 10000);
+
+    // 6. Wait for %layout-change to propagate — both panes should shrink
+    QTRY_VERIFY_WITH_TIMEOUT(leftDisplay->columns() < initialLeftCols || rightDisplay->columns() < initialRightCols, 15000);
+
+    qDebug() << "After smaller client - left:" << leftDisplay->columns() << "x" << leftDisplay->lines() << "px=" << leftDisplay->size()
+             << "right:" << rightDisplay->columns() << "x" << rightDisplay->lines() << "px=" << rightDisplay->size();
+
+    // 7. Assert forced grid sizes are smaller — total width should be <= 40
+    int totalCols = leftDisplay->columns() + 1 + rightDisplay->columns(); // +1 for separator
+    QVERIFY2(totalCols <= 40,
+             qPrintable(QStringLiteral("Expected total columns <= 40 but got %1 (%2 + 1 + %3)")
+                            .arg(totalCols).arg(leftDisplay->columns()).arg(rightDisplay->columns())));
+    QVERIFY2(leftDisplay->lines() <= 12,
+             qPrintable(QStringLiteral("Expected left lines <= 12 but got %1").arg(leftDisplay->lines())));
+    QVERIFY2(rightDisplay->lines() <= 12,
+             qPrintable(QStringLiteral("Expected right lines <= 12 but got %1").arg(rightDisplay->lines())));
+
+    // 8. Assert the TabPageWidget is constrained (the whole layout moves to top-left)
+    auto *page = qobject_cast<TabPageWidget *>(paneSplitter->parentWidget());
+    QVERIFY2(page, "Expected splitter to be inside a TabPageWidget");
+    QVERIFY2(page->isConstrained(), "Expected TabPageWidget to be constrained");
+    QSize constrained = page->constrainedSize();
+    QVERIFY2(constrained.width() < originalLeftPixelSize.width() + originalRightPixelSize.width()
+                 || constrained.height() < originalLeftPixelSize.height(),
+             qPrintable(QStringLiteral("Expected constrained size to shrink, got %1x%2")
+                            .arg(constrained.width()).arg(constrained.height())));
+
+    // 9. Cleanup: kill the background script process
+    scriptProc.terminate();
+    scriptProc.waitForFinished(5000);
+    if (scriptProc.state() != QProcess::NotRunning) {
+        scriptProc.kill();
+        scriptProc.waitForFinished(3000);
+    }
+
+    // Kill tmux session early to avoid layout-change during teardown
     TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
 
     QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);

@@ -1007,6 +1007,11 @@ void TerminalDisplay::resizeEvent(QResizeEvent *event)
 {
     Q_UNUSED(event)
 
+    // Clear forced grid dimensions so calcGeometry() recomputes from widget pixels.
+    // Forced dimensions are re-applied when tmux sends the next %layout-change.
+    _forcedColumns = 0;
+    _forcedLines = 0;
+
     if (contentsRect().isValid()) {
         // NOTE: This calls setTabText() in TabbedViewContainer::updateTitle(),
         // which might update the widget size again. New resizeEvent
@@ -1121,16 +1126,21 @@ void TerminalDisplay::calcGeometry()
 
     int fontWidth = _terminalFont->fontWidth();
 
-    // ensure that display is always at least one column wide,
-    // and clamp it to MAX_LINE_WIDTH-1 wide to prevent text shaping buffer overflows
-    _columns = qBound(1, _contentRect.width() / fontWidth, MAX_LINE_WIDTH - 1);
-    _usedColumns = qMin(_usedColumns, _columns);
+    if (_forcedColumns > 0 && _forcedLines > 0) {
+        _columns = qBound(1, _forcedColumns, MAX_LINE_WIDTH - 1);
+        _lines = qMax(1, _forcedLines);
+    } else {
+        // ensure that display is always at least one column wide,
+        // and clamp it to MAX_LINE_WIDTH-1 wide to prevent text shaping buffer overflows
+        _columns = qBound(1, _contentRect.width() / fontWidth, MAX_LINE_WIDTH - 1);
 
-    // ensure that display is always at least one line high
-    _lines = qMax(1, _contentRect.height() / _terminalFont->fontHeight());
+        // ensure that display is always at least one line high
+        _lines = qMax(1, _contentRect.height() / _terminalFont->fontHeight());
+    }
+    _usedColumns = qMin(_usedColumns, _columns);
     _usedLines = qMin(_usedLines, _lines);
 
-    if (_centerContents) {
+    if (_centerContents && _forcedColumns <= 0 && _forcedLines <= 0) {
         QSize unusedPixels = _contentRect.size() - QSize(_columns * fontWidth, _lines * _terminalFont->fontHeight());
         _contentRect.adjust(unusedPixels.width() / 2, unusedPixels.height() / 2, 0, 0);
     }
@@ -1149,6 +1159,16 @@ void TerminalDisplay::setSize(int columns, int lines)
         _size = newSize;
         updateGeometry();
     }
+}
+
+void TerminalDisplay::setForcedSize(int columns, int lines)
+{
+    if (_forcedColumns == columns && _forcedLines == lines) {
+        return;
+    }
+    _forcedColumns = columns;
+    _forcedLines = lines;
+    updateImageSize();
 }
 
 QSize TerminalDisplay::sizeHint() const

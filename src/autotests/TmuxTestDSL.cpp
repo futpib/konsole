@@ -442,7 +442,7 @@ void collectDisplayPanePairs(const TmuxTestDSL::LayoutSpec &layout,
 ViewSplitter *findPaneSplitter(TabbedViewContainer *container, int expectedPanes)
 {
     for (int i = 0; i < container->count(); ++i) {
-        auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        auto *splitter = container->viewSplitterAt(i);
         if (splitter) {
             auto terminals = splitter->findChildren<TerminalDisplay *>();
             if (terminals.size() == expectedPanes) {
@@ -912,7 +912,7 @@ void assertKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gate
     int expectedPanes = countPanes(spec.layout);
 
     for (int i = 0; i < container->count(); ++i) {
-        auto *splitter = qobject_cast<ViewSplitter *>(container->widget(i));
+        auto *splitter = container->viewSplitterAt(i);
         if (splitter) {
             auto terminals = splitter->findChildren<TerminalDisplay *>();
             if (terminals.size() == expectedPanes) {
@@ -980,7 +980,7 @@ void assertKonsoleLayout(const DiagramSpec &spec, ViewManager *vm, Session *gate
     if (spec.tab.has_value()) {
         // Find the tab index for the pane splitter
         for (int i = 0; i < container->count(); ++i) {
-            if (container->widget(i) == paneSplitter) {
+            if (container->viewSplitterAt(i) == paneSplitter) {
                 QString tabText = container->tabText(i);
                 QVERIFY2(tabText.contains(spec.tab.value()),
                          qPrintable(QStringLiteral("Tab text '%1' does not contain '%2'").arg(tabText, spec.tab.value())));

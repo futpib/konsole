@@ -15,6 +15,8 @@
 
 #include "ViewManager.h"
 #include "terminalDisplay/TerminalDisplay.h"
+#include "terminalDisplay/TerminalFonts.h"
+#include "widgets/TabPageWidget.h"
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
@@ -36,6 +38,18 @@ TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxControlle
     connect(&_resizeTimer, &QTimer::timeout, this, &TmuxResizeCoordinator::sendClientSize);
 
     connect(qApp, &QApplication::focusChanged, this, [this]() {
+        // When Konsole gains focus, immediately clear layout constraints
+        // so the splitter fills the tab while we wait for tmux to respond
+        // with a full-size layout.
+        TabbedViewContainer *container = _viewManager->activeContainer();
+        if (container && container->window() && container->window()->isActiveWindow()) {
+            for (int i = 0; i < container->count(); ++i) {
+                auto *page = container->tabPageAt(i);
+                if (page && page->isConstrained()) {
+                    page->clearConstrainedSize();
+                }
+            }
+        }
         _resizeTimer.start();
     });
     connect(viewManager, &ViewManager::activeViewChanged, this, [this]() {
@@ -62,7 +76,7 @@ void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
     if (!container) {
         return;
     }
-    int tabIndex = container->indexOf(topLevel);
+    int tabIndex = container->indexOfSplitter(topLevel);
 
     const auto &windowToTab = _controller->windowToTabIndex();
     int windowId = -1;
@@ -76,6 +90,13 @@ void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
     if (windowId < 0) {
         return;
     }
+
+    // Send refresh-client -C first so tmux knows the window size,
+    // then select-layout to set the exact pane proportions.
+    // If we send select-layout alone, a subsequent refresh-client -C
+    // (from the debounced timer) would cause tmux to re-layout from
+    // scratch, overriding our custom layout.
+    sendClientSize();
 
     _gateway->sendCommand(TmuxCommand(QStringLiteral("select-layout"))
                               .windowTarget(windowId)
@@ -93,7 +114,13 @@ void TmuxResizeCoordinator::sendClientSize()
     std::function<QSize(QWidget *)> computeSize = [&](QWidget *widget) -> QSize {
         auto *td = qobject_cast<TerminalDisplay *>(widget);
         if (td) {
-            return QSize(td->columns(), td->lines());
+            // Report available widget capacity from pixel size, not the current
+            // (possibly forced) grid size. This ensures Konsole tells tmux the
+            // full size it can display when it regains focus.
+            QRect cr = td->contentRect();
+            int cols = qBound(1, cr.width() / td->terminalFont()->fontWidth(), 1023);
+            int lines = qMax(1, cr.height() / td->terminalFont()->fontHeight());
+            return QSize(cols, lines);
         }
         auto *sp = qobject_cast<ViewSplitter *>(widget);
         if (!sp || sp->count() == 0) {
@@ -146,7 +173,7 @@ void TmuxResizeCoordinator::sendClientSize()
             continue;
         }
 
-        auto *windowSplitter = qobject_cast<ViewSplitter *>(container->widget(tabIndex));
+        auto *windowSplitter = container->viewSplitterAt(tabIndex);
         if (!windowSplitter) {
             continue;
         }

@@ -209,6 +209,7 @@ public:
     }
 
     void setSize(int columns, int lines);
+    void setForcedSize(int columns, int lines);
     void propagateSize();
 
     // reimplemented
@@ -692,6 +693,9 @@ private:
 
     int _lines = 1; // the number of lines that can be displayed in the widget
     int _columns = 1; // the number of columns that can be displayed in the widget
+
+    int _forcedColumns = 0; // when >0, overrides _columns calculation in calcGeometry()
+    int _forcedLines = 0; // when >0, overrides _lines calculation in calcGeometry()
 
     int _linesAtLastOsd = 1;
     int _columnsAtLastOsd = 1;

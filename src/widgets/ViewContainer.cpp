@@ -34,6 +34,7 @@
 #include "tmux/TmuxController.h"
 #include "tmux/TmuxControllerRegistry.h"
 #include "widgets/IncrementalSearchBar.h"
+#include "widgets/TabPageWidget.h"
 #include "widgets/ViewSplitter.h"
 
 #include <KMessageBox>
@@ -155,7 +156,7 @@ TabbedViewContainer::~TabbedViewContainer()
 {
     for (int i = 0, end = count(); i < end; i++) {
         auto view = widget(i);
-        disconnect(view, &QWidget::destroyed, this, &Konsole::TabbedViewContainer::viewDestroyed);
+        disconnect(view, &QObject::destroyed, this, &Konsole::TabbedViewContainer::viewDestroyed);
     }
 }
 
@@ -166,7 +167,24 @@ ViewSplitter *TabbedViewContainer::activeViewSplitter()
 
 ViewSplitter *TabbedViewContainer::viewSplitterAt(int index)
 {
+    if (auto *page = qobject_cast<TabPageWidget *>(widget(index))) {
+        return page->splitter();
+    }
     return qobject_cast<ViewSplitter *>(widget(index));
+}
+
+int TabbedViewContainer::indexOfSplitter(ViewSplitter *splitter)
+{
+    // The splitter's parent is TabPageWidget, which is the actual tab page
+    if (auto *page = qobject_cast<TabPageWidget *>(splitter->parentWidget())) {
+        return indexOf(page);
+    }
+    return indexOf(splitter);
+}
+
+TabPageWidget *TabbedViewContainer::tabPageAt(int index)
+{
+    return qobject_cast<TabPageWidget *>(widget(index));
 }
 
 ViewSplitter *TabbedViewContainer::findSplitter(int id)
@@ -300,20 +318,20 @@ void TabbedViewContainer::moveActiveView(MoveDirection direction)
     const int currentIndex = indexOf(currentWidget());
     int newIndex = direction == MoveViewLeft ? qMax(currentIndex - 1, 0) : qMin(currentIndex + 1, count() - 1);
 
-    auto swappedWidget = viewSplitterAt(newIndex);
+    auto swappedPage = widget(newIndex);
     auto swappedTitle = tabBar()->tabText(newIndex);
     auto swappedIcon = tabBar()->tabIcon(newIndex);
 
-    auto currentWidget = viewSplitterAt(currentIndex);
+    auto currentPage = widget(currentIndex);
     auto currentTitle = tabBar()->tabText(currentIndex);
     auto currentIcon = tabBar()->tabIcon(currentIndex);
 
     if (newIndex < currentIndex) {
-        insertTab(newIndex, currentWidget, currentIcon, currentTitle);
-        insertTab(currentIndex, swappedWidget, swappedIcon, swappedTitle);
+        insertTab(newIndex, currentPage, currentIcon, currentTitle);
+        insertTab(currentIndex, swappedPage, swappedIcon, swappedTitle);
     } else {
-        insertTab(currentIndex, swappedWidget, swappedIcon, swappedTitle);
-        insertTab(newIndex, currentWidget, currentIcon, currentTitle);
+        insertTab(currentIndex, swappedPage, swappedIcon, swappedTitle);
+        insertTab(newIndex, currentPage, currentIcon, currentTitle);
     }
     setCurrentIndex(newIndex);
 }
@@ -368,8 +386,9 @@ QSize TabbedViewContainer::sizeHint() const
 
 void TabbedViewContainer::addSplitter(ViewSplitter *viewSplitter, int index)
 {
-    index = insertTab(index, viewSplitter, QString());
-    connect(viewSplitter, &ViewSplitter::destroyed, this, &TabbedViewContainer::viewDestroyed);
+    auto *page = new TabPageWidget(viewSplitter);
+    index = insertTab(index, page, QString());
+    connect(page, &QObject::destroyed, this, &TabbedViewContainer::viewDestroyed);
 
     disconnect(viewSplitter, &ViewSplitter::terminalDisplayDropped, nullptr, nullptr);
     connect(viewSplitter, &ViewSplitter::terminalDisplayDropped, this, &TabbedViewContainer::terminalDisplayDropped);
@@ -391,10 +410,11 @@ void TabbedViewContainer::addView(TerminalDisplay *view)
     viewSplitter->addTerminalDisplay(view, Qt::Horizontal);
     auto item = view->sessionController();
     int index = _newTabBehavior == PutNewTabAfterCurrentTab ? currentIndex() + 1 : -1;
-    index = insertTab(index, viewSplitter, item->icon(), item->title());
+    auto *page = new TabPageWidget(viewSplitter);
+    index = insertTab(index, page, item->icon(), item->title());
 
     connectTerminalDisplay(view);
-    connect(viewSplitter, &ViewSplitter::destroyed, this, &TabbedViewContainer::viewDestroyed);
+    connect(page, &QObject::destroyed, this, &TabbedViewContainer::viewDestroyed);
     connect(viewSplitter, &ViewSplitter::terminalDisplayDropped, this, &TabbedViewContainer::terminalDisplayDropped);
 
     // Put this view on the foreground if it requests so, eg. on bell activity
@@ -406,7 +426,7 @@ void TabbedViewContainer::addView(TerminalDisplay *view)
 
 void TabbedViewContainer::splitView(TerminalDisplay *view, Qt::Orientation orientation)
 {
-    auto viewSplitter = qobject_cast<ViewSplitter *>(currentWidget());
+    auto viewSplitter = activeViewSplitter();
     viewSplitter->clearMaximized();
     viewSplitter->addTerminalDisplay(view, orientation);
     connectTerminalDisplay(view);
@@ -446,13 +466,15 @@ void TabbedViewContainer::disconnectTerminalDisplay(TerminalDisplay *display)
 
 void TabbedViewContainer::viewDestroyed(QObject *view)
 {
-    QWidget *widget = qobject_cast<QWidget *>(view);
-    Q_ASSERT(widget);
-    const int idx = indexOf(widget);
+    QWidget *w = static_cast<QWidget *>(view);
+    Q_ASSERT(w);
+    const int idx = indexOf(w);
+
+    // Remove icon state keyed by this widget (cleanup any matching entry)
+    _tabIconState.remove(w);
 
     removeTab(idx);
     forgetView();
-    _tabIconState.remove(widget);
 
     Q_EMIT viewRemoved();
 }
@@ -468,7 +490,11 @@ void TabbedViewContainer::activateView(const QString & /*xdgActivationToken*/)
 {
     if (QWidget *widget = qobject_cast<QWidget *>(sender())) {
         auto topLevelSplitter = qobject_cast<ViewSplitter *>(widget->parentWidget())->getToplevelSplitter();
-        setCurrentWidget(topLevelSplitter);
+        // The tab page may be a TabPageWidget wrapping the splitter
+        QWidget *tabPage = topLevelSplitter->parentWidget();
+        if (tabPage) {
+            setCurrentWidget(tabPage);
+        }
         widget->setFocus();
     }
 }
@@ -560,7 +586,10 @@ void TabbedViewContainer::openTabContextMenu(const QPoint &point)
 void TabbedViewContainer::currentTabChanged(int index)
 {
     if (index != -1) {
-        auto splitview = qobject_cast<ViewSplitter *>(widget(index));
+        auto splitview = viewSplitterAt(index);
+        if (!splitview) {
+            return;
+        }
         auto view = splitview->activeTerminalDisplay();
         setTabActivity(index, false);
         _tabIconState[splitview].notification = Session::NoNotification;
@@ -584,7 +613,15 @@ void TabbedViewContainer::wheelScrolled(int delta)
 
 void TabbedViewContainer::setTabActivity(int index, bool activity)
 {
-    auto controller = viewSplitterAt(index)->activeTerminalDisplay()->sessionController();
+    auto *splitter = viewSplitterAt(index);
+    if (!splitter) {
+        return;
+    }
+    auto *display = splitter->activeTerminalDisplay();
+    if (!display) {
+        return;
+    }
+    auto controller = display->sessionController();
     auto session = controller->session();
     QColor activityColor = session->activityColor();
     if (activityColor == QColor::Invalid) {
@@ -609,7 +646,7 @@ void TabbedViewContainer::updateTitle(ViewProperties *item)
     if (controller->view() != topLevelSplitter->activeTerminalDisplay()) {
         return;
     }
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
     QString tabText = item->title();
 
     setTabToolTip(index, tabText);
@@ -623,7 +660,7 @@ void TabbedViewContainer::updateColor(ViewProperties *item)
 {
     auto controller = qobject_cast<SessionController *>(item);
     auto topLevelSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget())->getToplevelSplitter();
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
 
     Q_EMIT setColor(index, item->color());
 }
@@ -632,7 +669,7 @@ void TabbedViewContainer::updateActivityColor(ViewProperties *item)
 {
     auto controller = qobject_cast<SessionController *>(item);
     auto topLevelSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget())->getToplevelSplitter();
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
 
     Q_EMIT setActivityColor(index, item->activityColor());
 }
@@ -641,7 +678,7 @@ void TabbedViewContainer::updateIcon(ViewProperties *item)
 {
     auto controller = qobject_cast<SessionController *>(item);
     auto topLevelSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget())->getToplevelSplitter();
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
     const auto &state = _tabIconState[topLevelSplitter];
 
     // Tab icon priority (from highest to lowest):
@@ -697,7 +734,7 @@ void TabbedViewContainer::updateActivity(ViewProperties *item)
     }
     auto *topLevelSplitter = parentSplitter->getToplevelSplitter();
 
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
     if (index != currentIndex()) {
         setTabActivity(index, true);
     }
@@ -707,7 +744,7 @@ void TabbedViewContainer::updateNotification(ViewProperties *item, Session::Noti
 {
     auto controller = qobject_cast<SessionController *>(item);
     auto topLevelSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget())->getToplevelSplitter();
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
     auto &state = _tabIconState[topLevelSplitter];
 
     if (enabled && (index != currentIndex() || controller->view()->hasCompositeFocus())) {
@@ -743,7 +780,7 @@ void TabbedViewContainer::updateProgress(ViewProperties *item)
 {
     auto controller = qobject_cast<SessionController *>(item);
     auto topLevelSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget())->getToplevelSplitter();
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
 
     Q_EMIT setProgress(index, item->progress());
 }
@@ -751,7 +788,7 @@ void TabbedViewContainer::updateProgress(ViewProperties *item)
 void TabbedViewContainer::currentSessionControllerChanged(SessionController *controller)
 {
     auto topLevelSplitter = qobject_cast<ViewSplitter *>(controller->view()->parentWidget())->getToplevelSplitter();
-    const int index = indexOf(topLevelSplitter);
+    const int index = indexOfSplitter(topLevelSplitter);
 
     if (index == currentIndex()) {
         // Active view changed in current tab - clear notifications

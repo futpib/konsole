@@ -438,9 +438,9 @@ void ViewManager::switchToTerminalDisplay(Konsole::TerminalDisplay *terminalDisp
     // Focus the TermialDisplay
     terminalDisplay->setFocus();
 
-    if (_viewContainer->currentWidget() != toplevelSplitter) {
+    if (_viewContainer->viewSplitterAt(_viewContainer->currentIndex()) != toplevelSplitter) {
         // Focus the tab
-        switchToView(_viewContainer->indexOf(toplevelSplitter));
+        switchToView(_viewContainer->indexOfSplitter(toplevelSplitter));
     }
 }
 
@@ -850,7 +850,7 @@ void ViewManager::splitView(Qt::Orientation orientation, bool fromNextTab)
     TerminalDisplay *terminalDisplay;
     TerminalDisplay *focused;
     if (fromNextTab) {
-        int tabId = _viewContainer->indexOf(_viewContainer->activeViewSplitter());
+        int tabId = _viewContainer->indexOfSplitter(_viewContainer->activeViewSplitter());
         auto nextTab = _viewContainer->viewSplitterAt(tabId + 1);
 
         if (!nextTab) {
@@ -1305,7 +1305,7 @@ void ViewManager::saveSessions(KConfigGroup &group)
 {
     QJsonArray rootArray;
     for (int i = 0; i < _viewContainer->count(); i++) {
-        auto *splitter = qobject_cast<QSplitter *>(_viewContainer->widget(i));
+        auto *splitter = _viewContainer->viewSplitterAt(i);
         rootArray.append(saveSessionsRecurse(splitter));
     }
 

@@ -12,6 +12,8 @@
 #include "ViewManager.h"
 #include "session/Session.h"
 #include "terminalDisplay/TerminalDisplay.h"
+#include "terminalDisplay/TerminalFonts.h"
+#include "widgets/TabPageWidget.h"
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
@@ -102,6 +104,54 @@ TmuxLayoutNode TmuxLayoutManager::buildLayoutNode(ViewSplitter *splitter, TmuxPa
     return node;
 }
 
+// Constrain a top-level tmux splitter's size so that the entire layout
+// shrinks to the top-left corner when a smaller client constrains the
+// tmux window.  The TabPageWidget manages positioning — when constrained
+// the splitter sits at the top-left with empty space filling the rest.
+// When Konsole's window is focused it drives the tmux window size, so
+// no constraint is applied — the layout should fill the available space.
+static void constrainSplitterToLayout(ViewSplitter *splitter, const TmuxLayoutNode &layout)
+{
+    auto *page = qobject_cast<TabPageWidget *>(splitter->parentWidget());
+    if (!page) {
+        return;
+    }
+
+    // When Konsole's window is focused, it controls the tmux size via
+    // refresh-client -C, so the layout should stretch to fill the tab.
+    QWidget *window = page->window();
+    if (window && window->isActiveWindow()) {
+        page->clearConstrainedSize();
+        return;
+    }
+
+    // Find font metrics from the first TerminalDisplay in the tree
+    auto displays = splitter->findChildren<TerminalDisplay *>();
+    if (displays.isEmpty()) {
+        return;
+    }
+    auto *td = displays.first();
+    int fontWidth = td->terminalFont()->fontWidth();
+    int fontHeight = td->terminalFont()->fontHeight();
+    if (fontWidth <= 0 || fontHeight <= 0) {
+        return;
+    }
+
+    // Compute the pixel size the layout needs
+    int layoutPixelWidth = layout.width * fontWidth;
+    int layoutPixelHeight = layout.height * fontHeight;
+
+    // Compare with the page's available space
+    QSize available = page->size();
+
+    if (layoutPixelWidth < available.width() || layoutPixelHeight < available.height()) {
+        page->setConstrainedSize(QSize(qMin(layoutPixelWidth, available.width()),
+                                       qMin(layoutPixelHeight, available.height())));
+    } else {
+        page->clearConstrainedSize();
+    }
+}
+
 int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
 {
     TabbedViewContainer *container = _viewManager->activeContainer();
@@ -110,7 +160,7 @@ int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
     }
 
     if (tabIndex >= 0) {
-        auto *oldSplitter = qobject_cast<ViewSplitter *>(container->widget(tabIndex));
+        auto *oldSplitter = container->viewSplitterAt(tabIndex);
         if (oldSplitter) {
             if (!updateSplitterSizes(oldSplitter, layout, false)) {
                 // Structure changed — collect existing displays, build new splitter, swap
@@ -132,22 +182,33 @@ int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
                 // Swap: save tab text, remove old tab, insert new one at same index
                 QString tabText = container->tabText(tabIndex);
                 QIcon tabIcon = container->tabIcon(tabIndex);
+                auto *oldPage = container->tabPageAt(tabIndex);
                 container->removeTab(tabIndex);
                 container->addSplitter(newSplitter, tabIndex);
-                container->setTabText(container->indexOf(newSplitter), tabText);
-                container->setTabIcon(container->indexOf(newSplitter), tabIcon);
-                tabIndex = container->indexOf(newSplitter);
+                tabIndex = container->indexOfSplitter(newSplitter);
+                container->setTabText(tabIndex, tabText);
+                container->setTabIcon(tabIndex, tabIcon);
 
                 // The old splitter (and any remaining children like nested splitters)
                 // will be deleted. Displays were already detached above.
                 // Disconnect to prevent viewDestroyed from firing during deletion.
                 oldSplitter->disconnect();
+                oldSplitter->setParent(nullptr);
                 delete oldSplitter;
+                if (oldPage) {
+                    oldPage->disconnect();
+                    delete oldPage;
+                }
 
                 // Destroy leftover displays that are no longer in the layout
                 for (auto *display : existingDisplays) {
                     display->deleteLater();
                 }
+            }
+            // Constrain splitter size when layout is smaller than available space
+            auto *currentSplitter = container->viewSplitterAt(tabIndex);
+            if (currentSplitter) {
+                constrainSplitterToLayout(currentSplitter, layout);
             }
         }
         return tabIndex;
@@ -167,13 +228,21 @@ int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
     }
 
     container->addSplitter(splitter);
-    return container->indexOf(splitter);
+    return container->indexOfSplitter(splitter);
 }
 
 bool TmuxLayoutManager::updateSplitterSizes(ViewSplitter *splitter, const TmuxLayoutNode &node, bool skipSizeUpdate)
 {
     if (node.type == TmuxLayoutNodeType::Leaf) {
-        return splitter->count() == 1 && qobject_cast<TerminalDisplay *>(splitter->widget(0));
+        auto *display = qobject_cast<TerminalDisplay *>(splitter->widget(0));
+        if (splitter->count() != 1 || !display) {
+            return false;
+        }
+        if (!skipSizeUpdate) {
+            display->setSize(node.width, node.height);
+            display->setForcedSize(node.width, node.height);
+        }
+        return true;
     }
 
     Qt::Orientation expected = (node.type == TmuxLayoutNodeType::HSplit) ? Qt::Horizontal : Qt::Vertical;
@@ -211,6 +280,7 @@ bool TmuxLayoutManager::updateSplitterSizes(ViewSplitter *splitter, const TmuxLa
                 auto *display = qobject_cast<TerminalDisplay *>(splitter->widget(i));
                 if (display) {
                     display->setSize(child.width, child.height);
+                    display->setForcedSize(child.width, child.height);
                 }
             }
         }
@@ -278,6 +348,7 @@ void TmuxLayoutManager::buildSplitterTree(ViewSplitter *splitter, const TmuxLayo
             if (display) {
                 splitter->addTerminalDisplay(display, -1);
                 display->setSize(child.width, child.height);
+                display->setForcedSize(child.width, child.height);
             }
         } else {
             auto *childSplitter = new ViewSplitter();
