@@ -18,6 +18,7 @@
 #include "../session/Session.h"
 #include "../terminalDisplay/TerminalDisplay.h"
 #include "../terminalDisplay/TerminalFonts.h"
+#include "../tmux/TmuxLayoutParser.h"
 #include "../widgets/ViewContainer.h"
 #include "../widgets/ViewSplitter.h"
 
@@ -341,6 +342,97 @@ void collectPaneCommands(const TmuxTestDSL::LayoutSpec &layout, QStringList &cmd
             collectPaneCommands(child, cmds);
         }
     }
+}
+
+// Propagate height to all nodes in a subtree (for HSplit parent constraint)
+void setSubtreeHeight(TmuxLayoutNode &node, int height)
+{
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        node.height = height;
+    } else if (node.type == TmuxLayoutNodeType::HSplit) {
+        node.height = height;
+        for (auto &c : node.children) {
+            setSubtreeHeight(c, height);
+        }
+    } else {
+        // VSplit: set outer height, don't recurse into children
+        node.height = height;
+    }
+}
+
+// Propagate width to all nodes in a subtree (for VSplit parent constraint)
+void setSubtreeWidth(TmuxLayoutNode &node, int width)
+{
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        node.width = width;
+    } else if (node.type == TmuxLayoutNodeType::VSplit) {
+        node.width = width;
+        for (auto &c : node.children) {
+            setSubtreeWidth(c, width);
+        }
+    } else {
+        // HSplit: set outer width, don't recurse into children
+        node.width = width;
+    }
+}
+
+// Build a TmuxLayoutNode from a LayoutSpec and a list of tmux pane IDs (in leaf order).
+// baseX/baseY are the absolute position of this node within the tmux window.
+// This produces a layout string that select-layout can apply atomically.
+TmuxLayoutNode buildTmuxLayoutFromSpec(const TmuxTestDSL::LayoutSpec &layout, const QList<int> &paneIds, int &leafIndex,
+                                       int baseX = 0, int baseY = 0)
+{
+    TmuxLayoutNode node;
+
+    if (layout.type == TmuxTestDSL::LayoutSpec::Leaf) {
+        node.type = TmuxLayoutNodeType::Leaf;
+        node.width = layout.pane.columns.value_or(80);
+        node.height = layout.pane.lines.value_or(24);
+        node.xOffset = baseX;
+        node.yOffset = baseY;
+        node.paneId = (leafIndex < paneIds.size()) ? paneIds[leafIndex] : leafIndex;
+        ++leafIndex;
+        return node;
+    }
+
+    node.type = (layout.type == TmuxTestDSL::LayoutSpec::HSplit) ? TmuxLayoutNodeType::HSplit : TmuxLayoutNodeType::VSplit;
+    bool horizontal = (node.type == TmuxLayoutNodeType::HSplit);
+
+    int offset = 0;
+    int maxCross = 0;
+    for (const auto &child : layout.children) {
+        int childX = horizontal ? (baseX + offset) : baseX;
+        int childY = horizontal ? baseY : (baseY + offset);
+        TmuxLayoutNode childNode = buildTmuxLayoutFromSpec(child, paneIds, leafIndex, childX, childY);
+
+        if (horizontal) {
+            offset += childNode.width + 1; // +1 for separator
+            maxCross = qMax(maxCross, childNode.height);
+        } else {
+            offset += childNode.height + 1; // +1 for separator
+            maxCross = qMax(maxCross, childNode.width);
+        }
+
+        node.children.append(childNode);
+    }
+
+    if (horizontal) {
+        node.width = offset > 0 ? offset - 1 : 0;
+        node.height = maxCross;
+        for (auto &c : node.children) {
+            setSubtreeHeight(c, maxCross);
+        }
+    } else {
+        node.width = maxCross;
+        node.height = offset > 0 ? offset - 1 : 0;
+        for (auto &c : node.children) {
+            setSubtreeWidth(c, maxCross);
+        }
+    }
+
+    node.xOffset = baseX;
+    node.yOffset = baseY;
+    return node;
 }
 
 // Build tmux split commands to create the layout
@@ -774,30 +866,81 @@ void setupTmuxSession(const DiagramSpec &spec, const QString &tmuxPath, SessionC
         }
     }
 
-    // Resize each pane to its exact specified dimensions
+    // Set exact pane dimensions.
+    // First try resize-pane for each pane (works for simple layouts).
+    // If verification fails, fall back to select-layout (atomic, handles complex layouts).
     {
         QList<QPair<int, int>> expectedDims;
         collectPaneDimensions(spec.layout, expectedDims);
 
         QProcess tmuxListPanes;
         tmuxListPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
-                                       QStringLiteral("-F"), QStringLiteral("#{pane_index}")});
+                                       QStringLiteral("-F"), QStringLiteral("#{pane_index} #{pane_id}")});
         QVERIFY(tmuxListPanes.waitForFinished(5000));
         QCOMPARE(tmuxListPanes.exitCode(), 0);
-        QStringList paneIndices = QString::fromUtf8(tmuxListPanes.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+        QStringList paneLines = QString::fromUtf8(tmuxListPanes.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
 
         int expectedPanes = countPanes(spec.layout);
-        QCOMPARE(paneIndices.size(), expectedPanes);
+        QCOMPARE(paneLines.size(), expectedPanes);
 
+        QList<int> paneIndices;
+        QList<int> paneIds;
+        for (const QString &line : paneLines) {
+            QStringList parts = line.split(QLatin1Char(' '));
+            paneIndices.append(parts[0].toInt());
+            paneIds.append(parts[1].mid(1).toInt()); // strip % prefix
+        }
+
+        // Try resize-pane for each pane (may fail silently for complex layouts)
         for (int i = 0; i < expectedPanes; ++i) {
-            int paneIndex = paneIndices[i].trimmed().toInt();
             QProcess resize;
             resize.start(tmuxPath, {QStringLiteral("resize-pane"),
-                                    QStringLiteral("-t"), QStringLiteral("%1:%2.%3").arg(ctx.sessionName).arg(0).arg(paneIndex),
+                                    QStringLiteral("-t"), QStringLiteral("%1:%2.%3").arg(ctx.sessionName).arg(0).arg(paneIndices[i]),
                                     QStringLiteral("-x"), QString::number(expectedDims[i].first),
                                     QStringLiteral("-y"), QString::number(expectedDims[i].second)});
-            QVERIFY2(resize.waitForFinished(5000), qPrintable(QStringLiteral("resize-pane timed out for pane %1").arg(paneIndex)));
-            QCOMPARE(resize.exitCode(), 0);
+            QVERIFY2(resize.waitForFinished(5000), qPrintable(QStringLiteral("resize-pane timed out for pane %1").arg(paneIndices[i])));
+        }
+
+        // Verify dimensions — if any mismatch, fall back to select-layout
+        QProcess verifyPanes;
+        verifyPanes.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                     QStringLiteral("-F"), QStringLiteral("#{pane_width} #{pane_height}")});
+        QVERIFY(verifyPanes.waitForFinished(5000));
+        QStringList verifyLines = QString::fromUtf8(verifyPanes.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+
+        bool needsFallback = (verifyLines.size() != expectedPanes);
+        if (!needsFallback) {
+            for (int i = 0; i < expectedPanes; ++i) {
+                QStringList parts = verifyLines[i].split(QLatin1Char(' '));
+                if (parts.size() != 2 || parts[0].toInt() != expectedDims[i].first || parts[1].toInt() != expectedDims[i].second) {
+                    needsFallback = true;
+                    break;
+                }
+            }
+        }
+
+        if (needsFallback) {
+            // Build a TmuxLayoutNode and use select-layout for atomic layout application
+            int leafIndex = 0;
+            TmuxLayoutNode layoutNode = buildTmuxLayoutFromSpec(spec.layout, paneIds, leafIndex);
+            QString layoutString = TmuxLayoutParser::serialize(layoutNode);
+
+            auto windowSize = computeWindowSize(spec.layout);
+
+            QProcess selectLayout1;
+            selectLayout1.start(tmuxPath, {QStringLiteral("select-layout"), QStringLiteral("-t"), ctx.sessionName, layoutString});
+            QVERIFY(selectLayout1.waitForFinished(5000));
+
+            QProcess resizeWindow;
+            resizeWindow.start(tmuxPath, {QStringLiteral("resize-window"), QStringLiteral("-t"), ctx.sessionName,
+                                          QStringLiteral("-x"), QString::number(windowSize.first),
+                                          QStringLiteral("-y"), QString::number(windowSize.second)});
+            QVERIFY(resizeWindow.waitForFinished(5000));
+
+            QProcess selectLayout2;
+            selectLayout2.start(tmuxPath, {QStringLiteral("select-layout"), QStringLiteral("-t"), ctx.sessionName, layoutString});
+            QVERIFY2(selectLayout2.waitForFinished(5000), qPrintable(QStringLiteral("select-layout timed out")));
+            QCOMPARE(selectLayout2.exitCode(), 0);
         }
     }
 

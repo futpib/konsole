@@ -1126,6 +1126,286 @@ void TmuxIntegrationTest::testResizePropagatedToPty()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testNestedResizePropagatedToPty()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // 1. Setup tmux session with a nested layout: left pane | [top-right / bottom-right]
+    //    All panes run bash so we can check stty size.
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: bash                              │ cmd: bash                              │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        ├────────────────────────────────────────┤
+        │                                        │ cmd: bash                              │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+
+    // 2. Attach Konsole and apply the same layout
+    auto initialLayout = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: bash                              │ cmd: bash                              │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        ├────────────────────────────────────────┤
+        │                                        │ cmd: bash                              │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+    TmuxTestDSL::applyKonsoleLayout(initialLayout, attach.mw->viewManager(), attach.gatewaySession);
+
+    // 3. Find the top-level splitter (horizontal: left | right-sub-splitter)
+    ViewSplitter *topSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 3) {
+                topSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(topSplitter, "Expected a ViewSplitter with 3 TerminalDisplay descendants");
+    QCOMPARE(topSplitter->orientation(), Qt::Horizontal);
+    QCOMPARE(topSplitter->count(), 2);
+
+    auto *leftDisplay = qobject_cast<TerminalDisplay *>(topSplitter->widget(0));
+    QVERIFY(leftDisplay);
+
+    // The right child should be a nested vertical splitter
+    auto *rightSplitter = qobject_cast<ViewSplitter *>(topSplitter->widget(1));
+    QVERIFY2(rightSplitter, "Expected right child to be a ViewSplitter");
+    QCOMPARE(rightSplitter->orientation(), Qt::Vertical);
+    QCOMPARE(rightSplitter->count(), 2);
+
+    auto *topRightDisplay = qobject_cast<TerminalDisplay *>(rightSplitter->widget(0));
+    auto *bottomRightDisplay = qobject_cast<TerminalDisplay *>(rightSplitter->widget(1));
+    QVERIFY(topRightDisplay);
+    QVERIFY(bottomRightDisplay);
+
+    int initialTopRightLines = topRightDisplay->lines();
+    int initialBottomRightLines = bottomRightDisplay->lines();
+    qDebug() << "Initial lines: topRight=" << initialTopRightLines << "bottomRight=" << initialBottomRightLines;
+
+    // 4. Resize the NESTED (vertical) splitter: make top-right much larger
+    QList<int> sizes = rightSplitter->sizes();
+    int total = sizes[0] + sizes[1];
+    int newTop = total * 3 / 4;
+    int newBottom = total - newTop;
+    rightSplitter->setSizes({newTop, newBottom});
+
+    // Force display widgets to the new pixel sizes and send resize events
+    int displayWidth = topRightDisplay->width();
+    topRightDisplay->resize(displayWidth, newTop);
+    bottomRightDisplay->resize(displayWidth, newBottom);
+    QResizeEvent topResizeEvent(QSize(displayWidth, newTop), topRightDisplay->size());
+    QResizeEvent bottomResizeEvent(QSize(displayWidth, newBottom), bottomRightDisplay->size());
+    QCoreApplication::sendEvent(topRightDisplay, &topResizeEvent);
+    QCoreApplication::sendEvent(bottomRightDisplay, &bottomResizeEvent);
+    QCoreApplication::processEvents();
+
+    // Trigger splitterMoved signal on the nested splitter
+    Q_EMIT rightSplitter->splitterMoved(newTop, 1);
+
+    int expectedTopRightLines = topRightDisplay->lines();
+    int expectedBottomRightLines = bottomRightDisplay->lines();
+    int expectedTopRightCols = topRightDisplay->columns();
+    int expectedBottomRightCols = bottomRightDisplay->columns();
+    qDebug() << "After resize: topRight=" << expectedTopRightLines << "x" << expectedTopRightCols
+             << "bottomRight=" << expectedBottomRightLines << "x" << expectedBottomRightCols;
+
+    // Verify the resize actually produced different line counts
+    QVERIFY2(expectedTopRightLines != expectedBottomRightLines,
+             qPrintable(QStringLiteral("Expected different line counts but both are %1").arg(expectedTopRightLines)));
+
+    // 5. Wait for tmux to process the layout change (metadata)
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_height}")});
+        check.waitForFinished(3000);
+        QStringList paneHeights = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+        if (paneHeights.size() != 3) return false;
+        // Pane order: %0 (left), %1 (top-right), %2 (bottom-right)
+        return paneHeights[1].toInt() == expectedTopRightLines && paneHeights[2].toInt() == expectedBottomRightLines;
+    }(), 10000);
+
+    // 6. Run 'stty size' in each nested pane and verify PTY dimensions match
+    auto runSttyAndCheck = [&](const QString &paneTarget, int expectedLines, int expectedCols) -> bool {
+        QProcess sendKeys;
+        sendKeys.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), paneTarget,
+                                  QStringLiteral("-l"), QStringLiteral("stty size\n")});
+        if (!sendKeys.waitForFinished(3000)) return false;
+        QTest::qWait(300);
+
+        QProcess capture;
+        capture.start(tmuxPath, {QStringLiteral("capture-pane"), QStringLiteral("-t"), paneTarget,
+                                 QStringLiteral("-p")});
+        capture.waitForFinished(3000);
+        QString output = QString::fromUtf8(capture.readAllStandardOutput());
+        QString expected = QString::number(expectedLines) + QStringLiteral(" ") + QString::number(expectedCols);
+        return output.contains(expected);
+    };
+
+    // Check top-right pane (pane index 1)
+    QTRY_VERIFY_WITH_TIMEOUT(
+        runSttyAndCheck(ctx.sessionName + QStringLiteral(":0.1"), expectedTopRightLines, expectedTopRightCols),
+        10000);
+    // Check bottom-right pane (pane index 2)
+    QTRY_VERIFY_WITH_TIMEOUT(
+        runSttyAndCheck(ctx.sessionName + QStringLiteral(":0.2"), expectedBottomRightLines, expectedBottomRightCols),
+        10000);
+
+    // Wait for any pending callbacks
+    QTest::qWait(500);
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+
+void TmuxIntegrationTest::testTopLevelResizeWithNestedChild()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // Minimal 4-pane layout: left | center | [top-right / bottom-right]
+    // 3-child top-level HSplit where the rightmost child is a nested VSplit.
+    // Resizing the handle between center and the right column must propagate
+    // correct absolute offsets and cross-axis dimensions to tmux.
+    TmuxTestDSL::SessionContext ctx;
+    auto diagram = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────────────────────┬──────────────────────────┬──────────────────────────┐
+        │ cmd: bash                │ cmd: bash                │ cmd: bash                │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        │                          │                          ├──────────────────────────┤
+        │                          │                          │ cmd: bash                │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        └──────────────────────────┴──────────────────────────┴──────────────────────────┘
+    )"));
+    TmuxTestDSL::setupTmuxSession(diagram, tmuxPath, ctx);
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+    TmuxTestDSL::applyKonsoleLayout(diagram, attach.mw->viewManager(), attach.gatewaySession);
+
+    // Find the splitter with 4 displays
+    ViewSplitter *topSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 4) {
+                topSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(topSplitter, "Expected a ViewSplitter with 4 TerminalDisplay descendants");
+    QCOMPARE(topSplitter->orientation(), Qt::Horizontal);
+    QCOMPARE(topSplitter->count(), 3);
+
+    // Record initial tmux pane widths
+    QProcess initialCheck;
+    initialCheck.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                  QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
+    initialCheck.waitForFinished(3000);
+    QString initialPanesStr = QString::fromUtf8(initialCheck.readAllStandardOutput()).trimmed();
+    qDebug() << "Initial tmux panes:" << initialPanesStr;
+
+    // Parse initial widths per pane ID
+    QMap<QString, int> initialWidths;
+    for (const auto &line : initialPanesStr.split(QLatin1Char('\n'))) {
+        QStringList parts = line.split(QLatin1Char(' '));
+        if (parts.size() == 3) {
+            initialWidths[parts[0]] = parts[1].toInt();
+        }
+    }
+
+    // Resize: shift space from right column to center
+    QList<int> sizes = topSplitter->sizes();
+    QCOMPARE(sizes.size(), 3);
+    int shift = sizes[2] / 3;
+    sizes[1] += shift;
+    sizes[2] -= shift;
+    topSplitter->setSizes(sizes);
+
+    // Force resize events on all displays
+    auto allDisplays = topSplitter->findChildren<TerminalDisplay *>();
+    for (auto *d : allDisplays) {
+        QResizeEvent ev(d->size(), d->size());
+        QCoreApplication::sendEvent(d, &ev);
+    }
+    QCoreApplication::processEvents();
+
+    Q_EMIT topSplitter->splitterMoved(sizes[0] + sizes[1], 2);
+
+    // The key assertion: after the splitter drag, tmux pane widths should change.
+    // With the bug (wrong offsets/cross-axis), tmux rejects or ignores the layout.
+    // Wait for tmux to accept the new layout and verify widths changed.
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
+        check.waitForFinished(3000);
+        QStringList panes = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+        qDebug() << "tmux list-panes:" << panes;
+        if (panes.size() != 4) return false;
+
+        // Check that at least one pane's width changed from initial
+        bool anyChanged = false;
+        for (const auto &line : panes) {
+            QStringList parts = line.split(QLatin1Char(' '));
+            if (parts.size() != 3) return false;
+            QString paneId = parts[0];
+            int width = parts[1].toInt();
+            if (initialWidths.contains(paneId) && width != initialWidths[paneId]) {
+                anyChanged = true;
+            }
+        }
+        return anyChanged;
+    }(), 10000);
+
+    // Now verify the dimensions match the layout we sent.
+    // Query tmux for the window layout string and verify it parses correctly.
+    QProcess layoutCheck;
+    layoutCheck.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                 QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
+    layoutCheck.waitForFinished(3000);
+    QString tmuxLayout = QString::fromUtf8(layoutCheck.readAllStandardOutput()).trimmed();
+    qDebug() << "tmux window_layout after resize:" << tmuxLayout;
+    QVERIFY2(!tmuxLayout.isEmpty(), "tmux should report a valid window layout");
+
+    QTest::qWait(500);
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 void TmuxIntegrationTest::testForcedSizeFromSmallerClient()
 {
     const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();

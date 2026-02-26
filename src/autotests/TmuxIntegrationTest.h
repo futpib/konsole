@@ -31,6 +31,8 @@ private Q_SLOTS:
     void testSplitPaneFocusesNewPaneComplexLayout();
     void testSplitPaneFocusesNewPaneNestedLayout();
     void testResizePropagatedToPty();
+    void testNestedResizePropagatedToPty();
+    void testTopLevelResizeWithNestedChild();
     void testForcedSizeFromSmallerClient();
     void testForcedSizeFromSmallerClientMultiPane();
 
