@@ -33,6 +33,7 @@ private Q_SLOTS:
     void testResizePropagatedToPty();
     void testNestedResizePropagatedToPty();
     void testTopLevelResizeWithNestedChild();
+    void testNestedResizeSurvivesFocusCycle();
     void testForcedSizeFromSmallerClient();
     void testForcedSizeFromSmallerClientMultiPane();
 

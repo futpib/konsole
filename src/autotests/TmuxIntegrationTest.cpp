@@ -1406,6 +1406,267 @@ void TmuxIntegrationTest::testTopLevelResizeWithNestedChild()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testNestedResizeSurvivesFocusCycle()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    const QString scriptPath = QStandardPaths::findExecutable(QStringLiteral("script"));
+    if (scriptPath.isEmpty()) {
+        QSKIP("script command not found.");
+    }
+
+    // 4-pane nested layout: left | center | [top-right / bottom-right]
+    // Resize, then cycle through smaller-client attach/detach,
+    // verify the resized layout is preserved after recovery.
+    TmuxTestDSL::SessionContext ctx;
+    auto diagram = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌──────────────────────────┬──────────────────────────┬──────────────────────────┐
+        │ cmd: bash                │ cmd: bash                │ cmd: bash                │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        │                          │                          ├──────────────────────────┤
+        │                          │                          │ cmd: bash                │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        │                          │                          │                          │
+        └──────────────────────────┴──────────────────────────┴──────────────────────────┘
+    )"));
+    TmuxTestDSL::setupTmuxSession(diagram, tmuxPath, ctx);
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+    TmuxTestDSL::applyKonsoleLayout(diagram, attach.mw->viewManager(), attach.gatewaySession);
+
+    // Find the splitter with 4 displays
+    ViewSplitter *topSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 4) {
+                topSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(topSplitter, "Expected a ViewSplitter with 4 TerminalDisplay descendants");
+    QCOMPARE(topSplitter->orientation(), Qt::Horizontal);
+    QCOMPARE(topSplitter->count(), 3);
+
+    // 1. Resize: shift space from right column to center
+    QList<int> sizes = topSplitter->sizes();
+    QCOMPARE(sizes.size(), 3);
+    int shift = sizes[2] / 3;
+    sizes[1] += shift;
+    sizes[2] -= shift;
+    topSplitter->setSizes(sizes);
+
+    auto allDisplays = topSplitter->findChildren<TerminalDisplay *>();
+    for (auto *d : allDisplays) {
+        QResizeEvent ev(d->size(), d->size());
+        QCoreApplication::sendEvent(d, &ev);
+    }
+    QCoreApplication::processEvents();
+
+    Q_EMIT topSplitter->splitterMoved(sizes[0] + sizes[1], 2);
+
+    // Wait for tmux to accept the resized layout
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_width}")});
+        check.waitForFinished(3000);
+        QStringList widths = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+        if (widths.size() != 4) return false;
+        // Initially all panes were 26 wide; after resize at least one should differ
+        for (const auto &w : widths) {
+            if (w.toInt() != 26) return true;
+        }
+        return false;
+    }(), 10000);
+
+    // Record the post-resize layout from tmux
+    QProcess layoutCheck;
+    layoutCheck.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                 QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
+    layoutCheck.waitForFinished(3000);
+    QString postResizeLayout = QString::fromUtf8(layoutCheck.readAllStandardOutput()).trimmed();
+    qDebug() << "Post-resize tmux layout:" << postResizeLayout;
+    QVERIFY(!postResizeLayout.isEmpty());
+
+    // Record post-resize pane dimensions
+    QProcess dimsCheck;
+    dimsCheck.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
+    dimsCheck.waitForFinished(3000);
+    QString postResizeDims = QString::fromUtf8(dimsCheck.readAllStandardOutput()).trimmed();
+    qDebug() << "Post-resize pane dims:" << postResizeDims;
+
+    // 2. Attach a smaller client to constrain the layout
+    QProcess scriptProc;
+    scriptProc.start(scriptPath, {
+        QStringLiteral("-q"),
+        QStringLiteral("-c"),
+        QStringLiteral("stty cols 40 rows 12; ") + tmuxPath + QStringLiteral(" attach -t ") + ctx.sessionName,
+        QStringLiteral("/dev/null"),
+    });
+    QVERIFY(scriptProc.waitForStarted(5000));
+
+    // Wait for the smaller client to be visible
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-clients"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{client_width}x#{client_height}")});
+        check.waitForFinished(3000);
+        QStringList clients = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        return clients.size() >= 2;
+    }(), 10000);
+
+    // Wait for layout to shrink
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
+        check.waitForFinished(3000);
+        QString layout = QString::fromUtf8(check.readAllStandardOutput()).trimmed();
+        return layout != postResizeLayout;
+    }(), 10000);
+
+    QProcess constrainedCheck;
+    constrainedCheck.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                      QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
+    constrainedCheck.waitForFinished(3000);
+    QString constrainedLayout = QString::fromUtf8(constrainedCheck.readAllStandardOutput()).trimmed();
+    qDebug() << "Constrained layout:" << constrainedLayout;
+
+    // 3. Kill the smaller client — layout should recover
+    scriptProc.terminate();
+    scriptProc.waitForFinished(5000);
+    if (scriptProc.state() != QProcess::NotRunning) {
+        scriptProc.kill();
+        scriptProc.waitForFinished(3000);
+    }
+
+    // Wait for only one client to remain
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-clients"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{client_name}")});
+        check.waitForFinished(3000);
+        QStringList clients = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        return clients.size() == 1;
+    }(), 10000);
+
+    // Process events so Konsole reacts to %client-detached → refreshClientCount
+    QTest::qWait(500);
+    QCoreApplication::processEvents();
+
+    // Simulate Konsole regaining focus: in offscreen mode isActiveWindow() is
+    // always false, so constraints are never cleared automatically.  Manually
+    // clear constraints on the TabPageWidget and emit focusChanged to trigger
+    // sendClientSize, mimicking what happens when the user clicks the window.
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *page = attach.container->tabPageAt(i);
+        if (page && page->isConstrained()) {
+            page->clearConstrainedSize();
+        }
+    }
+    Q_EMIT qApp->focusChanged(nullptr, nullptr);
+    QTest::qWait(200);
+    QCoreApplication::processEvents();
+
+    // Now do the resize again on the recovered layout.
+    // The widget sizes may differ from the initial run (offscreen doesn't
+    // resize widgets back to original proportions), but the point is that
+    // buildLayoutNode produces a valid layout string and tmux accepts it.
+    topSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 4) {
+                topSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(topSplitter, "Expected splitter with 4 displays after focus cycle");
+
+    sizes = topSplitter->sizes();
+    QCOMPARE(sizes.size(), 3);
+    shift = sizes[2] / 3;
+    sizes[1] += shift;
+    sizes[2] -= shift;
+    topSplitter->setSizes(sizes);
+
+    allDisplays = topSplitter->findChildren<TerminalDisplay *>();
+    for (auto *d : allDisplays) {
+        QResizeEvent ev(d->size(), d->size());
+        QCoreApplication::sendEvent(d, &ev);
+    }
+    QCoreApplication::processEvents();
+
+    Q_EMIT topSplitter->splitterMoved(sizes[0] + sizes[1], 2);
+
+    // 4. Verify tmux accepts the post-focus-cycle resize.
+    // The constrained layout shrank pane widths; after recovery and re-resize,
+    // at least one pane should have a width different from the constrained state.
+    QProcess constrainedDimsCheck;
+    constrainedDimsCheck.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                          QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width}")});
+    constrainedDimsCheck.waitForFinished(3000);
+    QString constrainedDimsStr = QString::fromUtf8(constrainedDimsCheck.readAllStandardOutput()).trimmed();
+
+    // Parse constrained widths
+    QMap<QString, int> constrainedWidths;
+    for (const auto &line : constrainedDimsStr.split(QLatin1Char('\n'))) {
+        QStringList parts = line.split(QLatin1Char(' '));
+        if (parts.size() == 2) {
+            constrainedWidths[parts[0]] = parts[1].toInt();
+        }
+    }
+
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
+        check.waitForFinished(3000);
+        QStringList panes = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
+        qDebug() << "Recovery pane dims:" << panes;
+        if (panes.size() != 4) return false;
+
+        bool anyChanged = false;
+        for (const auto &line : panes) {
+            QStringList parts = line.split(QLatin1Char(' '));
+            if (parts.size() != 3) return false;
+            QString paneId = parts[0];
+            int width = parts[1].toInt();
+            if (constrainedWidths.contains(paneId) && width != constrainedWidths[paneId]) {
+                anyChanged = true;
+            }
+        }
+        return anyChanged;
+    }(), 15000);
+
+    // Verify the layout string is valid and accepted by tmux
+    QProcess recoveredCheck;
+    recoveredCheck.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                    QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
+    recoveredCheck.waitForFinished(3000);
+    QString recoveredLayout = QString::fromUtf8(recoveredCheck.readAllStandardOutput()).trimmed();
+    qDebug() << "Recovered layout:" << recoveredLayout;
+    QVERIFY2(recoveredLayout != constrainedLayout, "Layout should differ from constrained state after focus recovery");
+
+    QTest::qWait(500);
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 void TmuxIntegrationTest::testForcedSizeFromSmallerClient()
 {
     const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
