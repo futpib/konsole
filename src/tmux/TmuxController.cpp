@@ -173,6 +173,11 @@ void TmuxController::requestToggleZoomPane(int paneId)
     _gateway->sendCommand(TmuxCommand(QStringLiteral("resize-pane")).flag(QStringLiteral("-Z")).paneTarget(paneId));
 }
 
+void TmuxController::requestBreakPane(int paneId)
+{
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("break-pane")).paneSource(paneId));
+}
+
 void TmuxController::requestDetach()
 {
     _gateway->detach();
@@ -421,18 +426,30 @@ void TmuxController::onWindowAdded(int windowId)
     _gateway->sendCommand(TmuxCommand(QStringLiteral("list-windows"))
                               .windowTarget(windowId)
                               .format(QStringLiteral("#{window_id} #{window_name} #{window_layout}")),
-                          [this](bool success, const QString &response) {
+                          [this, windowId](bool success, const QString &response) {
                               if (!success || response.isEmpty()) {
                                   return;
                               }
-                              QString line = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts).first();
+                              // list-windows -t @<id> returns all windows in the session,
+                              // so find the line matching the requested window ID.
+                              QString windowIdPrefix = QStringLiteral("@") + QString::number(windowId) + QLatin1Char(' ');
+                              const QStringList lines = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+                              QString line;
+                              for (const QString &l : lines) {
+                                  if (l.startsWith(windowIdPrefix)) {
+                                      line = l;
+                                      break;
+                                  }
+                              }
+                              if (line.isEmpty()) {
+                                  return;
+                              }
                               int firstSpace = line.indexOf(QLatin1Char(' '));
                               int secondSpace = line.indexOf(QLatin1Char(' '), firstSpace + 1);
                               if (firstSpace < 0 || secondSpace < 0) {
                                   return;
                               }
-                              QString windowIdStr = line.left(firstSpace);
-                              int wId = windowIdStr.mid(1).toInt();
+                              int wId = windowId;
                               QString windowName = line.mid(firstSpace + 1, secondSpace - firstSpace - 1);
                               QString layout = line.mid(secondSpace + 1);
                               auto parsed = TmuxLayoutParser::parse(layout);

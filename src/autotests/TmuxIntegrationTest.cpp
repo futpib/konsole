@@ -21,6 +21,7 @@
 #include "../ViewManager.h"
 #include "../profile/ProfileManager.h"
 #include "../session/Session.h"
+#include "../session/SessionController.h"
 #include "../session/SessionManager.h"
 #include "../terminalDisplay/TerminalDisplay.h"
 #include "../session/VirtualSession.h"
@@ -2418,6 +2419,110 @@ void TmuxIntegrationTest::testTmuxZoomSurvivesLayoutChanges()
     QVERIFY2(zoomedDisplay->lines() == zoomedLines,
              qPrintable(QStringLiteral("Expected zoomed lines to remain %1 but got %2")
                             .arg(zoomedLines).arg(zoomedDisplay->lines())));
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testBreakPane()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    // Setup 2-pane tmux session
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    auto layoutSpec = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::applyKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
+
+    // Find the splitter with 2 displays
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children");
+
+    int initialTabCount = attach.container->count();
+
+    // Find a pane session and its controller
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSession);
+    QVERIFY(controller);
+    int paneId = controller->paneIdForSession(paneSession);
+    QVERIFY(paneId >= 0);
+
+    // Break the pane out into a new tmux window
+    controller->requestBreakPane(paneId);
+
+    // Wait for tab count to increase (new tmux window → new tab)
+    QTRY_VERIFY_WITH_TIMEOUT(attach.container->count() == initialTabCount + 1, 10000);
+
+    // Verify the controller now has 2 windows, each with 1 pane
+    QCOMPARE(controller->windowCount(), 2);
+    const auto &windowTabs = controller->windowToTabIndex();
+    for (auto it = windowTabs.constBegin(); it != windowTabs.constEnd(); ++it) {
+        QCOMPARE(controller->paneCountForWindow(it.key()), 1);
+        auto *splitter = attach.container->viewSplitterAt(it.value());
+        QVERIFY(splitter);
+        auto terminals = splitter->findChildren<TerminalDisplay *>();
+        QCOMPARE(terminals.size(), 1);
+    }
+
+    // Verify tmux confirms 2 windows exist
+    QProcess listWindows;
+    listWindows.start(tmuxPath, {QStringLiteral("list-windows"), QStringLiteral("-t"), ctx.sessionName});
+    QVERIFY(listWindows.waitForFinished(5000));
+    QString windowOutput = QString::fromUtf8(listWindows.readAllStandardOutput()).trimmed();
+    int windowCount = windowOutput.split(QLatin1Char('\n'), Qt::SkipEmptyParts).size();
+    QCOMPARE(windowCount, 2);
 
     // Cleanup
     TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);

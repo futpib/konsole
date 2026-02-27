@@ -28,6 +28,7 @@
 #include "containers/ContainerList.h"
 #include "profile/ProfileList.h"
 #include "searchtabs/SearchTabs.h"
+#include "session/Session.h"
 #include "session/SessionController.h"
 #include "session/SessionManager.h"
 #include "terminalDisplay/TerminalDisplay.h"
@@ -942,6 +943,16 @@ void TabbedViewContainer::setNavigationBehavior(int behavior)
 
 void TabbedViewContainer::moveToNewTab(TerminalDisplay *display)
 {
+    // For tmux panes, break-pane moves the pane to a new tmux window (new tab)
+    Session *session = display->sessionController() ? display->sessionController()->session().data() : nullptr;
+    if (session && session->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+        auto *ctrl = TmuxControllerRegistry::instance()->controllerForSession(session);
+        if (ctrl) {
+            ctrl->requestBreakPane(ctrl->paneIdForSession(session));
+            return;
+        }
+    }
+
     // Ensure that the current terminal is not maximized so that the other views will be shown properly
     activeViewSplitter()->clearMaximized();
     addView(display);

@@ -41,6 +41,7 @@ private Q_SLOTS:
     void testTmuxZoomFromKonsole();
     void testTmuxZoomFromTmux();
     void testTmuxZoomSurvivesLayoutChanges();
+    void testBreakPane();
 
 private:
     QTemporaryDir m_tmuxTmpDir;

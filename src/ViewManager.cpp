@@ -550,6 +550,16 @@ void ViewManager::toggleTwoViews()
 
 void ViewManager::detachActiveView()
 {
+    // For tmux panes, break-pane moves the pane to a new tmux window (new tab)
+    Session *activeSession = _pluggedController ? _pluggedController->session().data() : nullptr;
+    if (activeSession && activeSession->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+        auto *ctrl = TmuxControllerRegistry::instance()->controllerForSession(activeSession);
+        if (ctrl) {
+            ctrl->requestBreakPane(ctrl->paneIdForSession(activeSession));
+            return;
+        }
+    }
+
     // find the currently active view and remove it from its container
     if ((_viewContainer->findChildren<TerminalDisplay *>()).count() > 1) {
         auto activeSplitter = _viewContainer->activeViewSplitter();

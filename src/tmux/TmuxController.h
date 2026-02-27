@@ -50,6 +50,7 @@ public:
     void requestClearHistory(Session *session);
     void requestClearHistoryAndReset(Session *session);
     void requestToggleZoomPane(int paneId);
+    void requestBreakPane(int paneId);
     void requestDetach();
 
     bool hasPane(int paneId) const;
