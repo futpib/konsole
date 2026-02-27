@@ -169,9 +169,6 @@ void TmuxPaneStateRecoveryTest::testCapturePaneFromRealTmux()
     QByteArray captureOutput = capture.readAllStandardOutput();
     QString captureText = QString::fromUtf8(captureOutput);
 
-    qDebug() << "capture-pane output length:" << captureOutput.size();
-    qDebug() << "capture-pane text:" << captureText.left(500);
-
     // Inject into a VirtualSession
     auto *session = new VirtualSession();
     session->emulation()->setImageSize(24, 80);
@@ -179,8 +176,6 @@ void TmuxPaneStateRecoveryTest::testCapturePaneFromRealTmux()
     injectCapturePaneResponse(session, captureText);
 
     QString screenText = readScreenText(session);
-    qDebug() << "Screen text:" << screenText;
-
     QVERIFY2(screenText.contains(QStringLiteral("CAPTURE_TEST_MARKER")),
              qPrintable(QStringLiteral("Screen should contain 'CAPTURE_TEST_MARKER', got: ") + screenText));
 

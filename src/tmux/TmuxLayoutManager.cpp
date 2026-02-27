@@ -17,10 +17,6 @@
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
-#include <QLoggingCategory>
-
-Q_LOGGING_CATEGORY(lcTmuxLayout, "konsole.tmux.layout")
-
 namespace Konsole
 {
 

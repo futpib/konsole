@@ -21,9 +21,6 @@
 #include "widgets/ViewSplitter.h"
 
 #include <QApplication>
-#include <QLoggingCategory>
-
-Q_DECLARE_LOGGING_CATEGORY(lcTmuxLayout)
 
 namespace Konsole
 {
@@ -73,8 +70,6 @@ void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
     ViewSplitter *topLevel = splitter->getToplevelSplitter();
     TmuxLayoutNode node = TmuxLayoutManager::buildLayoutNode(topLevel, _paneManager);
     QString layoutString = TmuxLayoutParser::serialize(node);
-
-    qCDebug(lcTmuxLayout) << "onSplitterMoved: serialized layout:" << layoutString;
 
     // Find window ID for this splitter's tab
     TabbedViewContainer *container = _viewManager->activeContainer();

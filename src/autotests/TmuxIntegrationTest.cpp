@@ -306,7 +306,6 @@ void TmuxIntegrationTest::testTmuxAttachContentRecovery()
 
     // Read the screen content
     QString screenText = readSessionScreenText(paneSession);
-    qDebug() << "Pane screen text:" << screenText;
 
     QVERIFY2(screenText.contains(QStringLiteral("MARKER_START")),
              qPrintable(QStringLiteral("Pane screen should contain 'MARKER_START', got: ") + screenText));
@@ -387,7 +386,6 @@ void TmuxIntegrationTest::testTmuxAttachComplexPromptRecovery()
 
     // Read the screen content
     QString screenText = readSessionScreenText(paneSession);
-    qDebug() << "Complex prompt pane screen text:" << screenText;
 
     QVERIFY2(screenText.contains(QStringLiteral("PROMPT_TEST_OUTPUT")),
              qPrintable(QStringLiteral("Pane screen should contain 'PROMPT_TEST_OUTPUT', got: ") + screenText));
@@ -442,10 +440,6 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     QCOMPARE(tmuxListPanes.exitCode(), 0);
     QStringList initialWidths = QString::fromUtf8(tmuxListPanes.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
     QCOMPARE(initialWidths.size(), 2);
-    int initialWidth0 = initialWidths[0].toInt();
-    int initialWidth1 = initialWidths[1].toInt();
-    qDebug() << "Initial tmux pane widths:" << initialWidth0 << initialWidth1;
-
     TmuxTestDSL::AttachResult attach;
     TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
 
@@ -489,10 +483,6 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     // Read current splitter sizes and display dimensions
     QList<int> sizes = paneSplitter->sizes();
     QCOMPARE(sizes.size(), 2);
-    qDebug() << "Initial Konsole splitter sizes:" << sizes;
-    qDebug() << "Initial display sizes:" << leftDisplay->size() << rightDisplay->size()
-             << "columns:" << leftDisplay->columns() << rightDisplay->columns();
-
     // Move the splitter: make left pane significantly larger (3/4 vs 1/4).
     int total = sizes[0] + sizes[1];
     int newLeft = total * 3 / 4;
@@ -509,9 +499,6 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     QCoreApplication::sendEvent(rightDisplay, &rightResizeEvent);
     QCoreApplication::processEvents();
 
-    qDebug() << "After resize - display sizes:" << leftDisplay->size() << rightDisplay->size()
-             << "columns:" << leftDisplay->columns() << rightDisplay->columns();
-
     // Verify the resize actually produced different column counts
     QVERIFY2(leftDisplay->columns() != rightDisplay->columns(),
              qPrintable(QStringLiteral("Expected different column counts but both are %1").arg(leftDisplay->columns())));
@@ -526,10 +513,6 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
     int expectedRightHeight = rightDisplay->lines();
     int expectedWindowWidth = expectedLeftWidth + 1 + expectedRightWidth; // +1 for separator
     int expectedWindowHeight = qMax(expectedLeftHeight, expectedRightHeight);
-    qDebug() << "Expected pane sizes:" << expectedLeftWidth << "x" << expectedLeftHeight
-             << "and" << expectedRightWidth << "x" << expectedRightHeight
-             << ", window:" << expectedWindowWidth << "x" << expectedWindowHeight;
-
     // Wait for the command to propagate to tmux and verify exact sizes
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         QProcess check;
@@ -545,7 +528,6 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
         int h0 = pane0[1].toInt();
         int w1 = pane1[0].toInt();
         int h1 = pane1[1].toInt();
-        qDebug() << "Current tmux pane sizes:" << w0 << "x" << h0 << "and" << w1 << "x" << h1;
         return w0 == expectedLeftWidth && w1 == expectedRightWidth
             && h0 == expectedWindowHeight && h1 == expectedWindowHeight;
     }(), 10000);
@@ -560,8 +542,6 @@ void TmuxIntegrationTest::testSplitterResizePropagatedToTmux()
         QCOMPARE(windowSize.size(), 2);
         int windowWidth = windowSize[0].toInt();
         int windowHeight = windowSize[1].toInt();
-        qDebug() << "Tmux window size:" << windowWidth << "x" << windowHeight
-                 << "(expected:" << expectedWindowWidth << "x" << expectedWindowHeight << ")";
         QCOMPARE(windowWidth, expectedWindowWidth);
         QCOMPARE(windowHeight, expectedWindowHeight);
     }
@@ -621,7 +601,6 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
     // Wait for pane title info to be queried
     QTRY_VERIFY_WITH_TIMEOUT([&]() {
         QString title = paneSession->getDynamicTitle();
-        qDebug() << "Pane dynamic title:" << title;
         return title.contains(QStringLiteral("tmp")) || title.contains(QStringLiteral("bash"));
     }(), 10000);
 
@@ -634,7 +613,6 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
     int tabIndex = controller->windowToTabIndex().value(windowId, -1);
     QVERIFY(tabIndex >= 0);
     QString tabText = attach.container->tabText(tabIndex);
-    qDebug() << "Tab text:" << tabText;
     QVERIFY2(!tabText.isEmpty(), "Tab text should not be empty for tmux window");
 
     // Cleanup
@@ -1043,10 +1021,6 @@ void TmuxIntegrationTest::testResizePropagatedToPty()
     QVERIFY(leftDisplay);
     QVERIFY(rightDisplay);
 
-    int initialLeftCols = leftDisplay->columns();
-    int initialRightCols = rightDisplay->columns();
-    qDebug() << "Initial columns: left=" << initialLeftCols << "right=" << initialRightCols;
-
     // 3. Resize the splitter: make left pane significantly larger (3/4 vs 1/4)
     QList<int> sizes = paneSplitter->sizes();
     int total = sizes[0] + sizes[1];
@@ -1069,7 +1043,6 @@ void TmuxIntegrationTest::testResizePropagatedToPty()
 
     int expectedLeftCols = leftDisplay->columns();
     int expectedRightCols = rightDisplay->columns();
-    qDebug() << "After resize columns: left=" << expectedLeftCols << "right=" << expectedRightCols;
 
     // Verify the resize actually produced different column counts
     QVERIFY2(expectedLeftCols != expectedRightCols,
@@ -1198,10 +1171,6 @@ void TmuxIntegrationTest::testNestedResizePropagatedToPty()
     QVERIFY(topRightDisplay);
     QVERIFY(bottomRightDisplay);
 
-    int initialTopRightLines = topRightDisplay->lines();
-    int initialBottomRightLines = bottomRightDisplay->lines();
-    qDebug() << "Initial lines: topRight=" << initialTopRightLines << "bottomRight=" << initialBottomRightLines;
-
     // 4. Resize the NESTED (vertical) splitter: make top-right much larger
     QList<int> sizes = rightSplitter->sizes();
     int total = sizes[0] + sizes[1];
@@ -1226,9 +1195,6 @@ void TmuxIntegrationTest::testNestedResizePropagatedToPty()
     int expectedBottomRightLines = bottomRightDisplay->lines();
     int expectedTopRightCols = topRightDisplay->columns();
     int expectedBottomRightCols = bottomRightDisplay->columns();
-    qDebug() << "After resize: topRight=" << expectedTopRightLines << "x" << expectedTopRightCols
-             << "bottomRight=" << expectedBottomRightLines << "x" << expectedBottomRightCols;
-
     // Verify the resize actually produced different line counts
     QVERIFY2(expectedTopRightLines != expectedBottomRightLines,
              qPrintable(QStringLiteral("Expected different line counts but both are %1").arg(expectedTopRightLines)));
@@ -1335,7 +1301,6 @@ void TmuxIntegrationTest::testTopLevelResizeWithNestedChild()
                                   QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
     initialCheck.waitForFinished(3000);
     QString initialPanesStr = QString::fromUtf8(initialCheck.readAllStandardOutput()).trimmed();
-    qDebug() << "Initial tmux panes:" << initialPanesStr;
 
     // Parse initial widths per pane ID
     QMap<QString, int> initialWidths;
@@ -1373,7 +1338,6 @@ void TmuxIntegrationTest::testTopLevelResizeWithNestedChild()
                                 QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
         check.waitForFinished(3000);
         QStringList panes = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
-        qDebug() << "tmux list-panes:" << panes;
         if (panes.size() != 4) return false;
 
         // Check that at least one pane's width changed from initial
@@ -1397,7 +1361,6 @@ void TmuxIntegrationTest::testTopLevelResizeWithNestedChild()
                                  QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
     layoutCheck.waitForFinished(3000);
     QString tmuxLayout = QString::fromUtf8(layoutCheck.readAllStandardOutput()).trimmed();
-    qDebug() << "tmux window_layout after resize:" << tmuxLayout;
     QVERIFY2(!tmuxLayout.isEmpty(), "tmux should report a valid window layout");
 
     QTest::qWait(500);
@@ -1495,7 +1458,6 @@ void TmuxIntegrationTest::testNestedResizeSurvivesFocusCycle()
                                  QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
     layoutCheck.waitForFinished(3000);
     QString postResizeLayout = QString::fromUtf8(layoutCheck.readAllStandardOutput()).trimmed();
-    qDebug() << "Post-resize tmux layout:" << postResizeLayout;
     QVERIFY(!postResizeLayout.isEmpty());
 
     // Record post-resize pane dimensions
@@ -1504,7 +1466,6 @@ void TmuxIntegrationTest::testNestedResizeSurvivesFocusCycle()
                                 QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
     dimsCheck.waitForFinished(3000);
     QString postResizeDims = QString::fromUtf8(dimsCheck.readAllStandardOutput()).trimmed();
-    qDebug() << "Post-resize pane dims:" << postResizeDims;
 
     // 2. Attach a smaller client to constrain the layout
     QProcess scriptProc;
@@ -1541,7 +1502,6 @@ void TmuxIntegrationTest::testNestedResizeSurvivesFocusCycle()
                                       QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
     constrainedCheck.waitForFinished(3000);
     QString constrainedLayout = QString::fromUtf8(constrainedCheck.readAllStandardOutput()).trimmed();
-    qDebug() << "Constrained layout:" << constrainedLayout;
 
     // 3. Kill the smaller client — layout should recover
     scriptProc.terminate();
@@ -1636,7 +1596,6 @@ void TmuxIntegrationTest::testNestedResizeSurvivesFocusCycle()
                                 QStringLiteral("-F"), QStringLiteral("#{pane_id} #{pane_width} #{pane_height}")});
         check.waitForFinished(3000);
         QStringList panes = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'));
-        qDebug() << "Recovery pane dims:" << panes;
         if (panes.size() != 4) return false;
 
         bool anyChanged = false;
@@ -1658,7 +1617,6 @@ void TmuxIntegrationTest::testNestedResizeSurvivesFocusCycle()
                                     QStringLiteral("-p"), QStringLiteral("#{window_layout}")});
     recoveredCheck.waitForFinished(3000);
     QString recoveredLayout = QString::fromUtf8(recoveredCheck.readAllStandardOutput()).trimmed();
-    qDebug() << "Recovered layout:" << recoveredLayout;
     QVERIFY2(recoveredLayout != constrainedLayout, "Layout should differ from constrained state after focus recovery");
 
     QTest::qWait(500);
@@ -1767,9 +1725,6 @@ void TmuxIntegrationTest::testForcedSizeFromSmallerClient()
 
     // Record the widget pixel size before the smaller client attaches
     QSize originalPixelSize = display->size();
-    qDebug() << "Initial display: columns=" << initialColumns << "lines=" << initialLines
-             << "pixelSize=" << originalPixelSize;
-
     // 5. Attach a second smaller tmux client using script to provide a pty
     QProcess scriptProc;
     scriptProc.start(scriptPath, {
@@ -1794,8 +1749,6 @@ void TmuxIntegrationTest::testForcedSizeFromSmallerClient()
     QTRY_VERIFY_WITH_TIMEOUT(display->columns() < initialColumns, 15000);
 
     // 7. Assert grid size matches the smaller client (40x12 minus status bar)
-    qDebug() << "After smaller client: columns=" << display->columns() << "lines=" << display->lines()
-             << "pixelSize=" << display->size();
     QVERIFY2(display->columns() <= 40,
              qPrintable(QStringLiteral("Expected columns <= 40 but got %1").arg(display->columns())));
     QVERIFY2(display->lines() <= 12,
@@ -1811,7 +1764,6 @@ void TmuxIntegrationTest::testForcedSizeFromSmallerClient()
     QVERIFY2(page, "Expected top-level splitter to be inside a TabPageWidget");
     QVERIFY2(page->isConstrained(), "Expected TabPageWidget to be constrained");
     QSize constrained = page->constrainedSize();
-    qDebug() << "TabPageWidget constrained:" << constrained << "display size:" << display->size();
     QVERIFY2(constrained.width() < originalPixelSize.width()
                  || constrained.height() < originalPixelSize.height(),
              qPrintable(QStringLiteral("Expected constrained size smaller than %1x%2, got %3x%4")
@@ -1930,14 +1882,9 @@ void TmuxIntegrationTest::testForcedSizeFromSmallerClientMultiPane()
     QVERIFY(rightDisplay);
 
     int initialLeftCols = leftDisplay->columns();
-    int initialLeftLines = leftDisplay->lines();
     int initialRightCols = rightDisplay->columns();
-    int initialRightLines = rightDisplay->lines();
     QSize originalLeftPixelSize = leftDisplay->size();
     QSize originalRightPixelSize = rightDisplay->size();
-
-    qDebug() << "Initial left:" << initialLeftCols << "x" << initialLeftLines << "px=" << originalLeftPixelSize
-             << "right:" << initialRightCols << "x" << initialRightLines << "px=" << originalRightPixelSize;
 
     QVERIFY2(initialLeftCols >= 20, qPrintable(QStringLiteral("Expected left columns >= 20 but got %1").arg(initialLeftCols)));
     QVERIFY2(initialRightCols >= 20, qPrintable(QStringLiteral("Expected right columns >= 20 but got %1").arg(initialRightCols)));
@@ -1964,9 +1911,6 @@ void TmuxIntegrationTest::testForcedSizeFromSmallerClientMultiPane()
 
     // 6. Wait for %layout-change to propagate — both panes should shrink
     QTRY_VERIFY_WITH_TIMEOUT(leftDisplay->columns() < initialLeftCols || rightDisplay->columns() < initialRightCols, 15000);
-
-    qDebug() << "After smaller client - left:" << leftDisplay->columns() << "x" << leftDisplay->lines() << "px=" << leftDisplay->size()
-             << "right:" << rightDisplay->columns() << "x" << rightDisplay->lines() << "px=" << rightDisplay->size();
 
     // 7. Assert forced grid sizes are smaller — total width should be <= 40
     int totalCols = leftDisplay->columns() + 1 + rightDisplay->columns(); // +1 for separator
