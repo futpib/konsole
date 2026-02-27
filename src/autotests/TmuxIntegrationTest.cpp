@@ -628,6 +628,65 @@ void TmuxIntegrationTest::testTmuxPaneTitleInfo()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testWindowNameWithSpaces()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: sleep 60                                                                  │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    // Rename the window to something adversarial: spaces, hex-like tokens, commas, braces
+    QString evilName = QStringLiteral("htop lol abc0,80x24,0,0 {evil} [nasty]");
+    QProcess renameProc;
+    renameProc.start(tmuxPath, {QStringLiteral("rename-window"), QStringLiteral("-t"), ctx.sessionName, evilName});
+    QVERIFY(renameProc.waitForFinished(5000));
+    QCOMPARE(renameProc.exitCode(), 0);
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    // Find the pane session (not the gateway)
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY2(paneSession, "Expected a tmux pane session to be created despite spaces in window name");
+
+    // Verify the tab title matches the evil name
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSession);
+    QVERIFY(controller);
+    int paneId = controller->paneIdForSession(paneSession);
+    int windowId = controller->windowIdForPane(paneId);
+    QVERIFY(windowId >= 0);
+    int tabIndex = controller->windowToTabIndex().value(windowId, -1);
+    QVERIFY(tabIndex >= 0);
+    QString tabText = attach.container->tabText(tabIndex);
+    QCOMPARE(tabText, evilName);
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 void TmuxIntegrationTest::testSplitPaneFocusesNewPane()
 {
     const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));

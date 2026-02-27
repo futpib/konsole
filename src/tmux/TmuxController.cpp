@@ -289,22 +289,12 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
     // _state is already Initializing (which subsumes ApplyingLayout)
     const QStringList lines = response.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     for (const QString &line : lines) {
-        int firstSpace = line.indexOf(QLatin1Char(' '));
-        if (firstSpace < 0) {
+        int windowId;
+        QString windowName;
+        QString layout;
+        if (!parseListWindowsLine(line, windowId, windowName, layout)) {
             continue;
         }
-        int secondSpace = line.indexOf(QLatin1Char(' '), firstSpace + 1);
-        if (secondSpace < 0) {
-            continue;
-        }
-
-        QString windowIdStr = line.left(firstSpace);
-        if (!windowIdStr.startsWith(QLatin1Char('@'))) {
-            continue;
-        }
-        int windowId = windowIdStr.mid(1).toInt();
-        QString windowName = line.mid(firstSpace + 1, secondSpace - firstSpace - 1);
-        QString layout = line.mid(secondSpace + 1);
 
         auto parsed = TmuxLayoutParser::parse(layout);
         if (parsed.has_value()) {
@@ -439,14 +429,12 @@ void TmuxController::onWindowAdded(int windowId)
                               if (line.isEmpty()) {
                                   return;
                               }
-                              int firstSpace = line.indexOf(QLatin1Char(' '));
-                              int secondSpace = line.indexOf(QLatin1Char(' '), firstSpace + 1);
-                              if (firstSpace < 0 || secondSpace < 0) {
+                              int wId;
+                              QString windowName;
+                              QString layout;
+                              if (!parseListWindowsLine(line, wId, windowName, layout)) {
                                   return;
                               }
-                              int wId = windowId;
-                              QString windowName = line.mid(firstSpace + 1, secondSpace - firstSpace - 1);
-                              QString layout = line.mid(secondSpace + 1);
                               auto parsed = TmuxLayoutParser::parse(layout);
                               if (parsed.has_value()) {
                                   setState(State::ApplyingLayout);
@@ -580,6 +568,30 @@ void TmuxController::setState(State newState)
 bool TmuxController::shouldSuppressResize() const
 {
     return _state == State::ApplyingLayout || _state == State::Initializing;
+}
+
+bool TmuxController::parseListWindowsLine(const QString &line, int &windowId, QString &windowName, QString &layout)
+{
+    // Format: "@<id> <window_name> <layout_checksum>,<layout_body>"
+    // Window names can contain spaces, so we can't simply split on spaces.
+    // The layout is always the last space-separated token (4 hex chars + comma + dimensions).
+    int firstSpace = line.indexOf(QLatin1Char(' '));
+    if (firstSpace < 0) {
+        return false;
+    }
+    QString windowIdStr = line.left(firstSpace);
+    if (!windowIdStr.startsWith(QLatin1Char('@'))) {
+        return false;
+    }
+    windowId = windowIdStr.mid(1).toInt();
+
+    int lastSpace = line.lastIndexOf(QLatin1Char(' '));
+    if (lastSpace <= firstSpace) {
+        return false;
+    }
+    layout = line.mid(lastSpace + 1);
+    windowName = line.mid(firstSpace + 1, lastSpace - firstSpace - 1);
+    return true;
 }
 
 void TmuxController::refreshClientCount()
