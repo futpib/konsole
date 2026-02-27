@@ -10,6 +10,10 @@
 #include "Emulation.h"
 #include "session/Session.h"
 
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(KonsoleTmuxGateway, "konsole.tmux.gateway", QtDebugMsg)
+
 namespace Konsole
 {
 
@@ -211,6 +215,10 @@ void TmuxGateway::handleNotification(const QByteArray &line)
     if (!notification.has_value()) {
         return;
     }
+    // Log everything except %output (too noisy)
+    if (!line.startsWith("%output ")) {
+        qCDebug(KonsoleTmuxGateway) << "notification:" << line;
+    }
 
     std::visit(
         [this](auto &&n) {
@@ -254,27 +262,34 @@ void TmuxGateway::handleNotification(const QByteArray &line)
 void TmuxGateway::finishCurrentCommand(bool success)
 {
     _inResponseBlock = false;
+    qCDebug(KonsoleTmuxGateway) << "finishCommand:" << (success ? "OK" : "FAIL") << "cmd=" << _currentCommand.command
+                                << "response=" << _currentCommand.response.left(200);
     if (_currentCommand.callback) {
         _currentCommand.callback(success, _currentCommand.response);
     }
     _currentCommand = PendingCommand();
 }
 
-void TmuxGateway::sendCommand(const QString &command, CommandCallback callback)
+void TmuxGateway::sendCommand(const TmuxCommand &command, CommandCallback callback)
 {
+    QString commandStr = command.build();
+
     if (_exited) {
+        qCDebug(KonsoleTmuxGateway) << "sendCommand: DROPPED (exited):" << commandStr;
         if (callback) {
             callback(false, QString());
         }
         return;
     }
 
+    qCDebug(KonsoleTmuxGateway) << "sendCommand:" << commandStr << "(queue depth:" << _pendingCommands.size() << ")";
+
     PendingCommand cmd;
-    cmd.command = command;
+    cmd.command = commandStr;
     cmd.callback = std::move(callback);
     _pendingCommands.enqueue(cmd);
 
-    QByteArray data = command.toUtf8() + '\n';
+    QByteArray data = commandStr.toUtf8() + '\n';
     writeToGateway(data);
 }
 
@@ -296,12 +311,10 @@ void TmuxGateway::sendKeys(int paneId, const QByteArray &data)
                 literal.append(data[i]);
                 i++;
             }
-            QString cmd = TmuxCommand(QStringLiteral("send-keys"))
+            sendCommand(TmuxCommand(QStringLiteral("send-keys"))
                              .flag(QStringLiteral("-l"))
                              .paneTarget(paneId)
-                             .arg(QString::fromLatin1(literal))
-                             .build();
-            sendCommand(cmd);
+                             .arg(QString::fromLatin1(literal)));
         } else {
             // Collect run of hex-encoded characters (max 125)
             QStringList hexParts;
@@ -314,18 +327,16 @@ void TmuxGateway::sendKeys(int paneId, const QByteArray &data)
                 }
                 i++;
             }
-            QString cmd = TmuxCommand(QStringLiteral("send-keys"))
+            sendCommand(TmuxCommand(QStringLiteral("send-keys"))
                              .paneTarget(paneId)
-                             .arg(hexParts.join(QLatin1Char(' ')))
-                             .build();
-            sendCommand(cmd);
+                             .arg(hexParts.join(QLatin1Char(' '))));
         }
     }
 }
 
 void TmuxGateway::detach()
 {
-    sendCommand(QStringLiteral("detach"));
+    sendCommand(TmuxCommand(QStringLiteral("detach")));
 }
 
 QByteArray TmuxGateway::decodeOctalEscapes(const QByteArray &encoded)

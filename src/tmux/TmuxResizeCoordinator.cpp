@@ -21,9 +21,86 @@
 #include "widgets/ViewSplitter.h"
 
 #include <QApplication>
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(KonsoleTmuxResize, "konsole.tmux.resize", QtDebugMsg)
 
 namespace Konsole
 {
+
+static void setSubtreeHeight(TmuxLayoutNode &node, int height)
+{
+    node.height = height;
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        return;
+    }
+    if (node.type == TmuxLayoutNodeType::HSplit) {
+        for (auto &child : node.children) {
+            setSubtreeHeight(child, height);
+        }
+    } else {
+        if (!node.children.isEmpty()) {
+            int currentSum = 0;
+            for (const auto &child : node.children) {
+                currentSum += child.height;
+            }
+            currentSum += node.children.size() - 1;
+            int diff = currentSum - height;
+            if (diff != 0) {
+                auto &last = node.children.last();
+                int newH = qMax(1, last.height - diff);
+                setSubtreeHeight(last, newH);
+            }
+        }
+    }
+}
+
+static void setSubtreeWidth(TmuxLayoutNode &node, int width)
+{
+    node.width = width;
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        return;
+    }
+    if (node.type == TmuxLayoutNodeType::VSplit) {
+        for (auto &child : node.children) {
+            setSubtreeWidth(child, width);
+        }
+    } else {
+        if (!node.children.isEmpty()) {
+            int currentSum = 0;
+            for (const auto &child : node.children) {
+                currentSum += child.width;
+            }
+            currentSum += node.children.size() - 1;
+            int diff = currentSum - width;
+            if (diff != 0) {
+                auto &last = node.children.last();
+                int newW = qMax(1, last.width - diff);
+                setSubtreeWidth(last, newW);
+            }
+        }
+    }
+}
+
+static void computeAbsoluteOffsets(TmuxLayoutNode &node, int baseX, int baseY)
+{
+    node.xOffset = baseX;
+    node.yOffset = baseY;
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        return;
+    }
+    bool horizontal = (node.type == TmuxLayoutNodeType::HSplit);
+    int offset = 0;
+    for (auto &child : node.children) {
+        if (horizontal) {
+            computeAbsoluteOffsets(child, baseX + offset, baseY);
+            offset += child.width + 1;
+        } else {
+            computeAbsoluteOffsets(child, baseX, baseY + offset);
+            offset += child.height + 1;
+        }
+    }
+}
 
 TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxController *controller, TmuxPaneManager *paneManager, TmuxLayoutManager *layoutManager, ViewManager *viewManager, QObject *parent)
     : QObject(parent)
@@ -38,14 +115,17 @@ TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxControlle
     connect(&_resizeTimer, &QTimer::timeout, this, &TmuxResizeCoordinator::sendClientSize);
 
     connect(qApp, &QApplication::focusChanged, this, [this]() {
+        TabbedViewContainer *container = _viewManager->activeContainer();
+        bool isActive = container && container->window() && container->window()->isActiveWindow();
+        qCDebug(KonsoleTmuxResize) << "focusChanged: isActiveWindow=" << isActive;
         // When Konsole gains focus, immediately clear layout constraints
         // so the splitter fills the tab while we wait for tmux to respond
         // with a full-size layout.
-        TabbedViewContainer *container = _viewManager->activeContainer();
-        if (container && container->window() && container->window()->isActiveWindow()) {
+        if (isActive) {
             for (int i = 0; i < container->count(); ++i) {
                 auto *page = container->tabPageAt(i);
                 if (page && page->isConstrained()) {
+                    qCDebug(KonsoleTmuxResize) << "focusChanged: clearing constraint on tab" << i;
                     page->clearConstrainedSize();
                 }
             }
@@ -53,27 +133,95 @@ TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxControlle
         _resizeTimer.start();
     });
     connect(viewManager, &ViewManager::activeViewChanged, this, [this]() {
+        qCDebug(KonsoleTmuxResize) << "activeViewChanged → starting resize timer";
         _resizeTimer.start();
     });
 }
 
 void TmuxResizeCoordinator::onPaneViewSizeChanged(bool suppressResize)
 {
+    qCDebug(KonsoleTmuxResize) << "onPaneViewSizeChanged: suppressResize=" << suppressResize;
     if (suppressResize) {
         return;
     }
     _resizeTimer.start();
 }
 
+// Recursively clamp a layout tree so that its root dimensions match targetW x targetH.
+// The difference between the node's current size and the target is absorbed by the
+// last child along the split axis; the cross-axis is propagated to all children.
+static void clampLayoutToSize(TmuxLayoutNode &node, int targetW, int targetH)
+{
+    if (node.type == TmuxLayoutNodeType::Leaf) {
+        node.width = targetW;
+        node.height = targetH;
+        return;
+    }
+
+    bool horizontal = (node.type == TmuxLayoutNodeType::HSplit);
+    node.width = targetW;
+    node.height = targetH;
+
+    if (node.children.isEmpty()) {
+        return;
+    }
+
+    if (horizontal) {
+        // Cross-axis: all children get the same height
+        for (auto &child : node.children) {
+            setSubtreeHeight(child, targetH);
+        }
+        // Split axis: compute current total width of children
+        int currentTotal = 0;
+        for (const auto &child : node.children) {
+            currentTotal += child.width;
+        }
+        currentTotal += node.children.size() - 1; // separators
+        int diff = currentTotal - targetW;
+        if (diff != 0) {
+            // Absorb the difference in the last child
+            auto &last = node.children.last();
+            int newWidth = last.width - diff;
+            if (newWidth < 1) {
+                newWidth = 1;
+            }
+            clampLayoutToSize(last, newWidth, targetH);
+        }
+    } else {
+        // Cross-axis: all children get the same width
+        for (auto &child : node.children) {
+            setSubtreeWidth(child, targetW);
+        }
+        // Split axis: compute current total height of children
+        int currentTotal = 0;
+        for (const auto &child : node.children) {
+            currentTotal += child.height;
+        }
+        currentTotal += node.children.size() - 1; // separators
+        int diff = currentTotal - targetH;
+        if (diff != 0) {
+            auto &last = node.children.last();
+            int newHeight = last.height - diff;
+            if (newHeight < 1) {
+                newHeight = 1;
+            }
+            clampLayoutToSize(last, targetW, newHeight);
+        }
+    }
+
+    // Recompute absolute offsets after clamping
+    computeAbsoluteOffsets(node, node.xOffset, node.yOffset);
+}
+
 void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
 {
     ViewSplitter *topLevel = splitter->getToplevelSplitter();
     TmuxLayoutNode node = TmuxLayoutManager::buildLayoutNode(topLevel, _paneManager);
-    QString layoutString = TmuxLayoutParser::serialize(node);
 
     // Find window ID for this splitter's tab
     TabbedViewContainer *container = _viewManager->activeContainer();
     if (!container) {
+        qCDebug(KonsoleTmuxResize) << "onSplitterMoved: no active container, aborting";
         return;
     }
     int tabIndex = container->indexOfSplitter(topLevel);
@@ -88,6 +236,7 @@ void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
     }
 
     if (windowId < 0) {
+        qCDebug(KonsoleTmuxResize) << "onSplitterMoved: no windowId found for tabIndex=" << tabIndex << ", aborting";
         return;
     }
 
@@ -98,16 +247,36 @@ void TmuxResizeCoordinator::onSplitterMoved(ViewSplitter *splitter)
     // scratch, overriding our custom layout.
     sendClientSize();
 
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("select-layout"))
-                              .windowTarget(windowId)
-                              .singleQuotedArg(layoutString)
-                              .build());
+    // Clamp the layout to the actual tmux window size. Konsole's widgets
+    // may be larger than what tmux allocated (e.g. due to other attached
+    // clients constraining the window). If we send a layout bigger than
+    // the window, tmux rejects it with "size mismatch".
+    QSize tmuxSize = _tmuxWindowSizes.value(windowId);
+    if (tmuxSize.isValid() && (node.width > tmuxSize.width() || node.height > tmuxSize.height())) {
+        int clampW = qMin(node.width, tmuxSize.width());
+        int clampH = qMin(node.height, tmuxSize.height());
+        qCDebug(KonsoleTmuxResize) << "onSplitterMoved: clamping layout from"
+                                   << node.width << "x" << node.height
+                                   << "to" << clampW << "x" << clampH
+                                   << "(tmux window size)";
+        clampLayoutToSize(node, clampW, clampH);
+    }
+
+    QString layoutString = TmuxLayoutParser::serialize(node);
+    qCDebug(KonsoleTmuxResize) << "onSplitterMoved: windowId=" << windowId << "tabIndex=" << tabIndex << "layout=" << layoutString;
+
+    TmuxCommand selectLayout = TmuxCommand(QStringLiteral("select-layout"))
+                                   .windowTarget(windowId)
+                                   .singleQuotedArg(layoutString);
+    qCDebug(KonsoleTmuxResize) << "onSplitterMoved: sending select-layout:" << selectLayout.build();
+    _gateway->sendCommand(selectLayout);
 }
 
 void TmuxResizeCoordinator::sendClientSize()
 {
     TabbedViewContainer *container = _viewManager->activeContainer();
     if (!container) {
+        qCDebug(KonsoleTmuxResize) << "sendClientSize: no active container, aborting";
         return;
     }
 
@@ -120,6 +289,12 @@ void TmuxResizeCoordinator::sendClientSize()
             QRect cr = td->contentRect();
             int cols = qBound(1, cr.width() / td->terminalFont()->fontWidth(), 1023);
             int lines = qMax(1, cr.height() / td->terminalFont()->fontHeight());
+            qCDebug(KonsoleTmuxResize) << "  computeSize display:" << td
+                                       << "contentRect=" << cr
+                                       << "fontW=" << td->terminalFont()->fontWidth()
+                                       << "fontH=" << td->terminalFont()->fontHeight()
+                                       << "→ cols=" << cols << "lines=" << lines
+                                       << "(grid: columns=" << td->columns() << "lines=" << td->lines() << ")";
             return QSize(cols, lines);
         }
         auto *sp = qobject_cast<ViewSplitter *>(widget);
@@ -145,15 +320,25 @@ void TmuxResizeCoordinator::sendClientSize()
         }
         sumAxis += sp->count() - 1;
 
+        QSize result;
         if (horizontal) {
-            return QSize(sumAxis, maxCross);
+            result = QSize(sumAxis, maxCross);
         } else {
-            return QSize(maxCross, sumAxis);
+            result = QSize(maxCross, sumAxis);
         }
+        qCDebug(KonsoleTmuxResize) << "  computeSize splitter:" << sp
+                                   << "orientation=" << (horizontal ? "H" : "V")
+                                   << "count=" << sp->count()
+                                   << "→" << result;
+        return result;
     };
 
     int activeTabIndex = container->currentIndex();
     bool windowFocused = container->window() && container->window()->isActiveWindow();
+
+    qCDebug(KonsoleTmuxResize) << "sendClientSize: activeTabIndex=" << activeTabIndex
+                               << "windowFocused=" << windowFocused
+                               << "otherClientsAttached=" << _otherClientsAttached;
 
     const auto &windowToTab = _controller->windowToTabIndex();
     for (auto it = windowToTab.constBegin(); it != windowToTab.constEnd(); ++it) {
@@ -164,17 +349,19 @@ void TmuxResizeCoordinator::sendClientSize()
             // Clear per-window size for non-active tabs and when unfocused,
             // so other clients can use their own size
             if (_lastClientSizes.contains(windowId)) {
+                qCDebug(KonsoleTmuxResize) << "sendClientSize: clearing size for windowId=" << windowId
+                                           << "(otherClients && (!focused || not active tab))";
                 _lastClientSizes.remove(windowId);
                 _gateway->sendCommand(TmuxCommand(QStringLiteral("refresh-client"))
                                           .flag(QStringLiteral("-C"))
-                                          .arg(QLatin1Char('@') + QString::number(windowId) + QLatin1Char(':'))
-                                          .build());
+                                          .arg(QLatin1Char('@') + QString::number(windowId) + QLatin1Char(':')));
             }
             continue;
         }
 
         auto *windowSplitter = container->viewSplitterAt(tabIndex);
         if (!windowSplitter) {
+            qCDebug(KonsoleTmuxResize) << "sendClientSize: no splitter for windowId=" << windowId << "tabIndex=" << tabIndex;
             continue;
         }
 
@@ -183,17 +370,22 @@ void TmuxResizeCoordinator::sendClientSize()
         int totalLines = totalSize.height();
 
         if (totalCols <= 0 || totalLines <= 0) {
+            qCDebug(KonsoleTmuxResize) << "sendClientSize: skipping windowId=" << windowId << "totalSize=" << totalSize << "(non-positive)";
             continue;
         }
 
         QSize &lastSize = _lastClientSizes[windowId];
         if (totalCols != lastSize.width() || totalLines != lastSize.height()) {
+            qCDebug(KonsoleTmuxResize) << "sendClientSize: windowId=" << windowId
+                                       << "size changed from" << lastSize << "to" << QSize(totalCols, totalLines)
+                                       << "→ sending refresh-client -C";
             lastSize = QSize(totalCols, totalLines);
             _gateway->sendCommand(TmuxCommand(QStringLiteral("refresh-client"))
                                       .flag(QStringLiteral("-C"))
                                       .arg(QLatin1Char('@') + QString::number(windowId) + QLatin1Char(':') + QString::number(totalCols) + QLatin1Char('x')
-                                           + QString::number(totalLines))
-                                      .build());
+                                           + QString::number(totalLines)));
+        } else {
+            qCDebug(KonsoleTmuxResize) << "sendClientSize: windowId=" << windowId << "size unchanged at" << lastSize << "→ skipping";
         }
     }
 }
@@ -203,6 +395,15 @@ void TmuxResizeCoordinator::setOtherClientsAttached(bool attached)
     if (_otherClientsAttached != attached) {
         _otherClientsAttached = attached;
         _resizeTimer.start();
+    }
+}
+
+void TmuxResizeCoordinator::setWindowSize(int windowId, int cols, int lines)
+{
+    QSize newSize(cols, lines);
+    if (_tmuxWindowSizes.value(windowId) != newSize) {
+        qCDebug(KonsoleTmuxResize) << "setWindowSize: windowId=" << windowId << "size=" << newSize;
+        _tmuxWindowSizes[windowId] = newSize;
     }
 }
 

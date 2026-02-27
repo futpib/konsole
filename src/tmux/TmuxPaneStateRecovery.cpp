@@ -34,8 +34,7 @@ void TmuxPaneStateRecovery::queryPaneStates(int windowId)
 
     _gateway->sendCommand(TmuxCommand(QStringLiteral("list-panes"))
                               .windowTarget(windowId)
-                              .format(format)
-                              .build(),
+                              .format(format),
                           [this, windowId](bool success, const QString &response) {
                               handlePaneStateResponse(windowId, success, response);
                           });
@@ -97,8 +96,7 @@ void TmuxPaneStateRecovery::capturePaneHistory(int paneId)
                               .flag(QStringLiteral("-e"))
                               .paneTarget(paneId)
                               .flag(QStringLiteral("-S"))
-                              .arg(QStringLiteral("-"))
-                              .build(),
+                              .arg(QStringLiteral("-")),
                           [this, paneId](bool success, const QString &response) {
                               handleCapturePaneResponse(paneId, success, response);
                           });

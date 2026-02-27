@@ -107,8 +107,7 @@ void TmuxPaneManager::pausePane(int paneId)
     _pausedPanes.insert(paneId);
     _gateway->sendCommand(TmuxCommand(QStringLiteral("refresh-client"))
                               .flag(QStringLiteral("-A"))
-                              .singleQuotedArg(QLatin1Char('%') + QString::number(paneId) + QStringLiteral(":on"))
-                              .build());
+                              .singleQuotedArg(QLatin1Char('%') + QString::number(paneId) + QStringLiteral(":on")));
 }
 
 void TmuxPaneManager::continuePane(int paneId)
@@ -168,8 +167,7 @@ void TmuxPaneManager::queryPaneTitleInfo()
 
     _gateway->sendCommand(TmuxCommand(QStringLiteral("list-panes"))
                               .flag(QStringLiteral("-a"))
-                              .format(format)
-                              .build(),
+                              .format(format),
                           [this](bool success, const QString &response) {
                               if (!success || response.isEmpty()) {
                                   return;

@@ -32,6 +32,7 @@ public:
     void onSplitterMoved(ViewSplitter *splitter);
     void sendClientSize();
     void stop();
+    void setWindowSize(int windowId, int cols, int lines);
 
     void setOtherClientsAttached(bool attached);
 
@@ -44,6 +45,7 @@ private:
 
     QTimer _resizeTimer;
     QMap<int, QSize> _lastClientSizes;
+    QMap<int, QSize> _tmuxWindowSizes;
     bool _otherClientsAttached = false;
 };
 

@@ -17,6 +17,10 @@
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(KonsoleTmuxLayout, "konsole.tmux.layout", QtDebugMsg)
+
 namespace Konsole
 {
 
@@ -25,13 +29,31 @@ namespace Konsole
 static void setSubtreeHeight(TmuxLayoutNode &node, int height)
 {
     node.height = height;
-    if (node.type == TmuxLayoutNodeType::VSplit) {
-        // VSplit: children stack vertically, don't change their individual heights
+    if (node.type == TmuxLayoutNodeType::Leaf) {
         return;
     }
-    // HSplit or Leaf: propagate height to all children
-    for (auto &child : node.children) {
-        setSubtreeHeight(child, height);
+    if (node.type == TmuxLayoutNodeType::HSplit) {
+        // HSplit: height is the cross-axis — propagate to all children
+        for (auto &child : node.children) {
+            setSubtreeHeight(child, height);
+        }
+    } else {
+        // VSplit: height is the split-axis — children stack vertically.
+        // Their heights must sum to (height - separators). Absorb any
+        // difference in the last child so tmux's checksum validation passes.
+        if (!node.children.isEmpty()) {
+            int currentSum = 0;
+            for (const auto &child : node.children) {
+                currentSum += child.height;
+            }
+            currentSum += node.children.size() - 1; // separators
+            int diff = currentSum - height;
+            if (diff != 0) {
+                auto &last = node.children.last();
+                int newH = qMax(1, last.height - diff);
+                setSubtreeHeight(last, newH);
+            }
+        }
     }
 }
 
@@ -40,13 +62,31 @@ static void setSubtreeHeight(TmuxLayoutNode &node, int height)
 static void setSubtreeWidth(TmuxLayoutNode &node, int width)
 {
     node.width = width;
-    if (node.type == TmuxLayoutNodeType::HSplit) {
-        // HSplit: children are side-by-side, don't change their individual widths
+    if (node.type == TmuxLayoutNodeType::Leaf) {
         return;
     }
-    // VSplit or Leaf: propagate width to all children
-    for (auto &child : node.children) {
-        setSubtreeWidth(child, width);
+    if (node.type == TmuxLayoutNodeType::VSplit) {
+        // VSplit: width is the cross-axis — propagate to all children
+        for (auto &child : node.children) {
+            setSubtreeWidth(child, width);
+        }
+    } else {
+        // HSplit: width is the split-axis — children sit side-by-side.
+        // Their widths must sum to (width - separators). Absorb any
+        // difference in the last child so tmux's checksum validation passes.
+        if (!node.children.isEmpty()) {
+            int currentSum = 0;
+            for (const auto &child : node.children) {
+                currentSum += child.width;
+            }
+            currentSum += node.children.size() - 1; // separators
+            int diff = currentSum - width;
+            if (diff != 0) {
+                auto &last = node.children.last();
+                int newW = qMax(1, last.width - diff);
+                setSubtreeWidth(last, newW);
+            }
+        }
     }
 }
 
@@ -181,6 +221,7 @@ static void constrainSplitterToLayout(ViewSplitter *splitter, const TmuxLayoutNo
     // refresh-client -C, so the layout should stretch to fill the tab.
     QWidget *window = page->window();
     if (window && window->isActiveWindow()) {
+        qCDebug(KonsoleTmuxLayout) << "constrainSplitterToLayout: window is active, clearing constraint";
         page->clearConstrainedSize();
         return;
     }
@@ -204,16 +245,28 @@ static void constrainSplitterToLayout(ViewSplitter *splitter, const TmuxLayoutNo
     // Compare with the page's available space
     QSize available = page->size();
 
+    qCDebug(KonsoleTmuxLayout) << "constrainSplitterToLayout: layout=" << layout.width << "x" << layout.height
+                               << "layoutPx=" << layoutPixelWidth << "x" << layoutPixelHeight
+                               << "available=" << available
+                               << "fontW=" << fontWidth << "fontH=" << fontHeight;
+
     if (layoutPixelWidth < available.width() || layoutPixelHeight < available.height()) {
-        page->setConstrainedSize(QSize(qMin(layoutPixelWidth, available.width()),
-                                       qMin(layoutPixelHeight, available.height())));
+        QSize constrained(qMin(layoutPixelWidth, available.width()), qMin(layoutPixelHeight, available.height()));
+        qCDebug(KonsoleTmuxLayout) << "constrainSplitterToLayout: → constraining to" << constrained;
+        page->setConstrainedSize(constrained);
     } else {
+        qCDebug(KonsoleTmuxLayout) << "constrainSplitterToLayout: → clearing constraint (layout fits)";
         page->clearConstrainedSize();
     }
 }
 
 int TmuxLayoutManager::applyLayout(int tabIndex, const TmuxLayoutNode &layout)
 {
+    qCDebug(KonsoleTmuxLayout) << "applyLayout: tabIndex=" << tabIndex
+                               << "layout: type=" << static_cast<int>(layout.type)
+                               << "size=" << layout.width << "x" << layout.height
+                               << "children=" << layout.children.size();
+
     TabbedViewContainer *container = _viewManager->activeContainer();
     if (!container) {
         return -1;
@@ -436,6 +489,9 @@ void TmuxLayoutManager::connectSplitterSignals(ViewSplitter *splitter)
 {
     disconnect(splitter, &QSplitter::splitterMoved, this, nullptr);
     connect(splitter, &QSplitter::splitterMoved, this, [this, splitter]() {
+        qCDebug(KonsoleTmuxLayout) << "QSplitter::splitterMoved on" << splitter
+                                   << "orientation=" << (splitter->orientation() == Qt::Horizontal ? "H" : "V")
+                                   << "count=" << splitter->count();
         Q_EMIT splitterMoved(splitter);
     });
 
@@ -444,10 +500,12 @@ void TmuxLayoutManager::connectSplitterSignals(ViewSplitter *splitter)
         if (handle) {
             disconnect(handle, &ViewSplitterHandle::dragStarted, this, nullptr);
             disconnect(handle, &ViewSplitterHandle::dragFinished, this, nullptr);
-            connect(handle, &ViewSplitterHandle::dragStarted, this, [this]() {
+            connect(handle, &ViewSplitterHandle::dragStarted, this, [this, handle]() {
+                qCDebug(KonsoleTmuxLayout) << "dragStarted from handle" << handle;
                 Q_EMIT splitterDragStarted();
             });
-            connect(handle, &ViewSplitterHandle::dragFinished, this, [this]() {
+            connect(handle, &ViewSplitterHandle::dragFinished, this, [this, handle]() {
+                qCDebug(KonsoleTmuxLayout) << "dragFinished from handle" << handle;
                 Q_EMIT splitterDragFinished();
             });
         }

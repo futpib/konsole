@@ -19,6 +19,10 @@
 #include "terminalDisplay/TerminalDisplay.h"
 #include "widgets/ViewContainer.h"
 
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(KonsoleTmuxController, "konsole.tmux.controller", QtDebugMsg)
+
 namespace Konsole
 {
 
@@ -56,9 +60,11 @@ TmuxController::TmuxController(TmuxGateway *gateway, Session *gatewaySession, Vi
 
     // Splitter drag state management
     connect(_layoutManager, &TmuxLayoutManager::splitterDragStarted, this, [this]() {
+        qCDebug(KonsoleTmuxController) << "splitterDragStarted signal received";
         setState(State::Dragging);
     });
     connect(_layoutManager, &TmuxLayoutManager::splitterDragFinished, this, [this]() {
+        qCDebug(KonsoleTmuxController) << "splitterDragFinished signal received";
         setState(State::Idle);
     });
 
@@ -80,8 +86,7 @@ void TmuxController::initialize()
 {
     setState(State::Initializing);
     _gateway->sendCommand(TmuxCommand(QStringLiteral("list-windows"))
-                              .format(QStringLiteral("#{window_id} #{window_name} #{window_layout}"))
-                              .build(),
+                              .format(QStringLiteral("#{window_id} #{window_name} #{window_layout}")),
                           [this](bool success, const QString &response) {
                               handleListWindowsResponse(success, response);
                           });
@@ -99,7 +104,7 @@ TmuxGateway *TmuxController::gateway() const
 
 void TmuxController::requestNewWindow()
 {
-    _gateway->sendCommand(QStringLiteral("new-window"));
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("new-window")));
 }
 
 void TmuxController::requestSplitPane(int paneId, Qt::Orientation orientation)
@@ -107,23 +112,22 @@ void TmuxController::requestSplitPane(int paneId, Qt::Orientation orientation)
     QString direction = (orientation == Qt::Horizontal) ? QStringLiteral("-h") : QStringLiteral("-v");
     _gateway->sendCommand(TmuxCommand(QStringLiteral("split-window"))
                               .flag(direction)
-                              .paneTarget(paneId)
-                              .build());
+                              .paneTarget(paneId));
 }
 
 void TmuxController::requestClosePane(int paneId)
 {
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("kill-pane")).paneTarget(paneId).build());
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("kill-pane")).paneTarget(paneId));
 }
 
 void TmuxController::requestCloseWindow(int windowId)
 {
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("kill-window")).windowTarget(windowId).build());
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("kill-window")).windowTarget(windowId));
 }
 
 void TmuxController::requestSwapPane(int srcPaneId, int dstPaneId)
 {
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("swap-pane")).paneSource(srcPaneId).paneTarget(dstPaneId).build());
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("swap-pane")).paneSource(srcPaneId).paneTarget(dstPaneId));
 }
 
 void TmuxController::requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientation orientation, bool before)
@@ -136,19 +140,19 @@ void TmuxController::requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientati
     if (before) {
         cmd.flag(QStringLiteral("-b"));
     }
-    _gateway->sendCommand(cmd.build());
+    _gateway->sendCommand(cmd);
 }
 
 void TmuxController::requestRenameWindow(int windowId, const QString &name)
 {
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("rename-window")).windowTarget(windowId).quotedArg(name).build());
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("rename-window")).windowTarget(windowId).quotedArg(name));
 }
 
 void TmuxController::requestClearHistory(Session *session)
 {
     int paneId = _paneManager->paneIdForSession(session);
     if (paneId >= 0) {
-        _gateway->sendCommand(TmuxCommand(QStringLiteral("clear-history")).paneTarget(paneId).build());
+        _gateway->sendCommand(TmuxCommand(QStringLiteral("clear-history")).paneTarget(paneId));
     }
 }
 
@@ -319,15 +323,25 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
     Q_UNUSED(visibleLayout)
     Q_UNUSED(zoomed)
 
+    qCDebug(KonsoleTmuxController) << "onLayoutChanged: windowId=" << windowId << "layout=" << layout << "state=" << static_cast<int>(_state);
+
+    auto parsed = TmuxLayoutParser::parse(layout);
+    if (parsed.has_value()) {
+        // Always track the actual tmux window size, even during drag —
+        // onSplitterMoved needs to know the real window dimensions so
+        // select-layout doesn't exceed the tmux window size.
+        _resizeCoordinator->setWindowSize(windowId, parsed.value().width, parsed.value().height);
+    }
+
     // Skip layout-change notifications while dragging a splitter — they are
     // echo-backs of our own select-layout commands and would create a feedback
     // loop (select-layout → %layout-change → applyLayout → setSizes →
     // splitterMoved → select-layout …).
     if (_state == State::Dragging) {
+        qCDebug(KonsoleTmuxController) << "onLayoutChanged: SKIPPING layout apply — state is Dragging";
         return;
     }
 
-    auto parsed = TmuxLayoutParser::parse(layout);
     if (parsed.has_value()) {
         setState(State::ApplyingLayout);
         applyWindowLayout(windowId, parsed.value());
@@ -352,8 +366,7 @@ void TmuxController::onWindowAdded(int windowId)
     }
     _gateway->sendCommand(TmuxCommand(QStringLiteral("list-windows"))
                               .windowTarget(windowId)
-                              .format(QStringLiteral("#{window_id} #{window_name} #{window_layout}"))
-                              .build(),
+                              .format(QStringLiteral("#{window_id} #{window_name} #{window_layout}")),
                           [this](bool success, const QString &response) {
                               if (!success || response.isEmpty()) {
                                   return;
@@ -450,6 +463,8 @@ void TmuxController::sendClientSize()
 
 void TmuxController::setState(State newState)
 {
+    static const char *stateNames[] = {"Idle", "Initializing", "ApplyingLayout", "Dragging"};
+    qCDebug(KonsoleTmuxController) << "setState:" << stateNames[static_cast<int>(_state)] << "→" << stateNames[static_cast<int>(newState)];
     _state = newState;
 }
 
@@ -461,8 +476,7 @@ bool TmuxController::shouldSuppressResize() const
 void TmuxController::refreshClientCount()
 {
     _gateway->sendCommand(TmuxCommand(QStringLiteral("list-clients"))
-                              .format(QStringLiteral("#{client_name}"))
-                              .build(),
+                              .format(QStringLiteral("#{client_name}")),
                           [this](bool success, const QString &response) {
                               if (!success) {
                                   return;

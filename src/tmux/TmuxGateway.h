@@ -14,6 +14,7 @@
 #include <functional>
 #include <optional>
 
+#include "TmuxCommand.h"
 #include "TmuxNotification.h"
 #include "konsoleprivate_export.h"
 
@@ -31,7 +32,7 @@ public:
     void processLine(const QByteArray &line);
 
     using CommandCallback = std::function<void(bool success, const QString &response)>;
-    void sendCommand(const QString &command, CommandCallback callback = nullptr);
+    void sendCommand(const TmuxCommand &command, CommandCallback callback = nullptr);
     void sendKeys(int paneId, const QByteArray &data);
     void detach();
 
