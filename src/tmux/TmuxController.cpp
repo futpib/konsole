@@ -144,11 +144,6 @@ void TmuxController::requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientati
     _gateway->sendCommand(cmd);
 }
 
-void TmuxController::requestRenameWindow(int windowId, const QString &name)
-{
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("rename-window")).windowTarget(windowId).quotedArg(name));
-}
-
 void TmuxController::requestClearHistory(Session *session)
 {
     int paneId = _paneManager->paneIdForSession(session);

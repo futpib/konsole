@@ -46,7 +46,6 @@ public:
     void requestCloseWindow(int windowId);
     void requestSwapPane(int srcPaneId, int dstPaneId);
     void requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientation orientation, bool before);
-    void requestRenameWindow(int windowId, const QString &name);
     void requestClearHistory(Session *session);
     void requestClearHistoryAndReset(Session *session);
     void requestToggleZoomPane(int paneId);
