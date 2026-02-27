@@ -117,7 +117,7 @@ std::optional<TmuxNotification> TmuxGateway::parseNotification(const QByteArray 
             visibleLayout = QString::fromUtf8(parts[2]);
         }
         if (parts.size() >= 4) {
-            zoomed = parts[3].contains('*');
+            zoomed = parts[3].contains('Z');
         }
         return TmuxLayoutChangedNotification{windowId, layout, visibleLayout, zoomed};
 

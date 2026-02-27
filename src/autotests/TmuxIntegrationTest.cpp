@@ -2119,6 +2119,312 @@ void TmuxIntegrationTest::testClearScrollbackAndResetSyncToTmux()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testTmuxZoomFromKonsole()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    // Setup 2-pane tmux session
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    auto layoutSpec = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::applyKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
+
+    // Find the splitter with 2 displays
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children");
+    QVERIFY(!paneSplitter->terminalMaximized());
+
+    // Find a pane session and its controller
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSession);
+    QVERIFY(controller);
+    int paneId = controller->paneIdForSession(paneSession);
+    QVERIFY(paneId >= 0);
+
+    // Trigger zoom via requestToggleZoomPane (simulates Konsole's maximize action)
+    controller->requestToggleZoomPane(paneId);
+
+    // Wait for tmux to report zoomed state
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-p"), QStringLiteral("#{window_zoomed_flag}")});
+        check.waitForFinished(3000);
+        return QString::fromUtf8(check.readAllStandardOutput()).trimmed() == QStringLiteral("1");
+    }(), 10000);
+
+    // Verify Konsole splitter is maximized
+    QTRY_VERIFY_WITH_TIMEOUT(paneSplitter->terminalMaximized(), 5000);
+
+    // Trigger unzoom
+    controller->requestToggleZoomPane(paneId);
+
+    // Wait for tmux to report unzoomed state
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-p"), QStringLiteral("#{window_zoomed_flag}")});
+        check.waitForFinished(3000);
+        return QString::fromUtf8(check.readAllStandardOutput()).trimmed() == QStringLiteral("0");
+    }(), 10000);
+
+    // Verify Konsole splitter is no longer maximized
+    QTRY_VERIFY_WITH_TIMEOUT(!paneSplitter->terminalMaximized(), 5000);
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testTmuxZoomFromTmux()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    // Setup 2-pane tmux session
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │ cmd: sleep 60                          │ cmd: sleep 60                          │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    auto layoutSpec = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────┬────────────────────────────────────────┐
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        │                                        │                                        │
+        └────────────────────────────────────────┴────────────────────────────────────────┘
+    )"));
+    TmuxTestDSL::applyKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
+
+    // Find the splitter with 2 displays
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children");
+    QVERIFY(!paneSplitter->terminalMaximized());
+
+    // Zoom from tmux externally
+    QProcess zoomProc;
+    zoomProc.start(tmuxPath, {QStringLiteral("resize-pane"), QStringLiteral("-Z"), QStringLiteral("-t"), ctx.sessionName});
+    QVERIFY(zoomProc.waitForFinished(5000));
+    QCOMPARE(zoomProc.exitCode(), 0);
+
+    // Wait for Konsole to show maximized state
+    QTRY_VERIFY_WITH_TIMEOUT(paneSplitter->terminalMaximized(), 10000);
+
+    // Unzoom from tmux
+    QProcess unzoomProc;
+    unzoomProc.start(tmuxPath, {QStringLiteral("resize-pane"), QStringLiteral("-Z"), QStringLiteral("-t"), ctx.sessionName});
+    QVERIFY(unzoomProc.waitForFinished(5000));
+    QCOMPARE(unzoomProc.exitCode(), 0);
+
+    // Wait for Konsole to restore all panes
+    QTRY_VERIFY_WITH_TIMEOUT(!paneSplitter->terminalMaximized(), 10000);
+
+    // Re-find the splitter (layout apply may have replaced it)
+    paneSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children after unzoom");
+
+    // Verify both displays are not explicitly hidden (isHidden() checks the widget's
+    // own visibility flag, unlike isVisible() which also checks all ancestors).
+    // In the offscreen test the pane tab may not be the active tab, so isVisible()
+    // can return false even though the displays are not hidden.
+    auto terminals = paneSplitter->findChildren<TerminalDisplay *>();
+    QCOMPARE(terminals.size(), 2);
+    for (auto *td : terminals) {
+        QVERIFY2(!td->isHidden(), "Expected both terminal displays to not be hidden after unzoom");
+    }
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testTmuxZoomSurvivesLayoutChanges()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    // Small 2-pane layout — each pane is only ~20 columns wide, so the zoomed
+    // display should clearly expand beyond that when maximized.
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────┬────────────────────┐
+        │ cmd: sleep 60      │ cmd: sleep 60      │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    auto layoutSpec = TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────┬────────────────────┐
+        │                    │                    │
+        │                    │                    │
+        │                    │                    │
+        └────────────────────┴────────────────────┘
+    )"));
+    TmuxTestDSL::applyKonsoleLayout(layoutSpec, attach.mw->viewManager(), attach.gatewaySession);
+
+    // Find the splitter with 2 displays
+    ViewSplitter *paneSplitter = nullptr;
+    for (int i = 0; i < attach.container->count(); ++i) {
+        auto *splitter = attach.container->viewSplitterAt(i);
+        if (splitter) {
+            auto terminals = splitter->findChildren<TerminalDisplay *>();
+            if (terminals.size() == 2) {
+                paneSplitter = splitter;
+                break;
+            }
+        }
+    }
+    QVERIFY2(paneSplitter, "Expected a ViewSplitter with 2 TerminalDisplay children");
+
+    // Find a pane session and record its pre-zoom display width
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    auto paneViews = paneSession->views();
+    QVERIFY(!paneViews.isEmpty());
+    auto *zoomedDisplay = qobject_cast<TerminalDisplay *>(paneViews.first());
+    QVERIFY(zoomedDisplay);
+
+    int preZoomColumns = zoomedDisplay->columns();
+
+    // Zoom from tmux
+    QProcess zoomProc;
+    zoomProc.start(tmuxPath, {QStringLiteral("resize-pane"), QStringLiteral("-Z"), QStringLiteral("-t"), ctx.sessionName});
+    QVERIFY(zoomProc.waitForFinished(5000));
+    QCOMPARE(zoomProc.exitCode(), 0);
+
+    // Wait for Konsole to enter maximized state
+    QTRY_VERIFY_WITH_TIMEOUT(paneSplitter->terminalMaximized(), 10000);
+
+    // Record the zoomed display's grid size right after maximize is applied
+    int zoomedColumns = zoomedDisplay->columns();
+    int zoomedLines = zoomedDisplay->lines();
+
+    // Wait for several %layout-change notifications to arrive (the title refresh
+    // timer fires every 2 seconds and can trigger layout-change echo-backs).
+    QTest::qWait(5000);
+    QCoreApplication::processEvents();
+
+    // The key assertion: the zoomed display's grid size must not have been
+    // shrunk by setForcedSize from a layout-change while zoomed.
+    QVERIFY2(paneSplitter->terminalMaximized(), "Expected splitter to still be maximized after layout changes");
+    QVERIFY2(zoomedDisplay->columns() == zoomedColumns,
+             qPrintable(QStringLiteral("Expected zoomed columns to remain %1 but got %2 (pre-zoom was %3)")
+                            .arg(zoomedColumns).arg(zoomedDisplay->columns()).arg(preZoomColumns)));
+    QVERIFY2(zoomedDisplay->lines() == zoomedLines,
+             qPrintable(QStringLiteral("Expected zoomed lines to remain %1 but got %2")
+                            .arg(zoomedLines).arg(zoomedDisplay->lines())));
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 QTEST_MAIN(TmuxIntegrationTest)
 
 #include "moc_TmuxIntegrationTest.cpp"

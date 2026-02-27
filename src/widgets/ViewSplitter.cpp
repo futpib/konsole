@@ -452,6 +452,29 @@ void ViewSplitter::handleMinimizeMaximize(bool maximize, bool zoom)
     }
 }
 
+void ViewSplitter::setMaximizedTerminal(TerminalDisplay *display)
+{
+    auto topLevelSplitter = getToplevelSplitter();
+    if (topLevelSplitter->m_terminalMaximized) {
+        return;
+    }
+    topLevelSplitter->m_terminalMaximized = true;
+    display->setExpandedMode(true);
+    topLevelSplitter->fontSizeBeforeMaximization = 0;
+
+    for (int i = 0, end = topLevelSplitter->count(); i < end; i++) {
+        auto widgetAt = topLevelSplitter->widget(i);
+        if (auto *maybeSplitter = qobject_cast<ViewSplitter *>(widgetAt)) {
+            maybeSplitter->hideRecurse(display);
+        }
+        if (auto maybeTerminalDisplay = qobject_cast<TerminalDisplay *>(widgetAt)) {
+            if (maybeTerminalDisplay != display) {
+                maybeTerminalDisplay->setVisible(false);
+            }
+        }
+    }
+}
+
 void ViewSplitter::clearMaximized()
 {
     ViewSplitter *top = getToplevelSplitter();

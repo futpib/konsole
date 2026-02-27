@@ -117,6 +117,12 @@ public:
      */
     void toggleZoomMaximizeCurrentTerminal();
 
+    /** Programmatically maximize a specific terminal display.
+     * Unlike toggleMaximizeCurrentTerminal() which operates on the active display,
+     * this targets a specific display — needed when the zoomed pane may not be focused.
+     */
+    void setMaximizedTerminal(TerminalDisplay *display);
+
     /**
      * Can be called on any ViewSplitter to find the top level splitter and ensure
      * the active display isn't maximized. Do nothing if it's not maximized.

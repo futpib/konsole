@@ -882,6 +882,18 @@ void TabbedViewContainer::toggleMaximizeCurrentTerminal()
         terminal->setFocus(Qt::FocusReason::OtherFocusReason);
     }
 
+    auto *display = activeViewSplitter()->activeTerminalDisplay();
+    if (display && display->sessionController()) {
+        auto *controller = TmuxControllerRegistry::instance()->controllerForSession(display->sessionController()->session());
+        if (controller) {
+            int paneId = controller->paneIdForSession(display->sessionController()->session());
+            if (paneId >= 0) {
+                controller->requestToggleZoomPane(paneId);
+                return;
+            }
+        }
+    }
+
     activeViewSplitter()->toggleMaximizeCurrentTerminal();
 }
 
@@ -890,6 +902,18 @@ void TabbedViewContainer::toggleZoomMaximizeCurrentTerminal()
 {
     if (auto *terminal = qobject_cast<TerminalDisplay *>(sender())) {
         terminal->setFocus(Qt::FocusReason::OtherFocusReason);
+    }
+
+    auto *display = activeViewSplitter()->activeTerminalDisplay();
+    if (display && display->sessionController()) {
+        auto *controller = TmuxControllerRegistry::instance()->controllerForSession(display->sessionController()->session());
+        if (controller) {
+            int paneId = controller->paneIdForSession(display->sessionController()->session());
+            if (paneId >= 0) {
+                controller->requestToggleZoomPane(paneId);
+                return;
+            }
+        }
     }
 
     activeViewSplitter()->toggleZoomMaximizeCurrentTerminal();

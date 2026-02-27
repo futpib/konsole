@@ -10,6 +10,7 @@
 #include <QList>
 #include <QMap>
 #include <QObject>
+#include <QSet>
 #include <QTimer>
 
 #include "konsoleprivate_export.h"
@@ -48,6 +49,7 @@ public:
     void requestRenameWindow(int windowId, const QString &name);
     void requestClearHistory(Session *session);
     void requestClearHistoryAndReset(Session *session);
+    void requestToggleZoomPane(int paneId);
     void requestDetach();
 
     bool hasPane(int paneId) const;
@@ -80,6 +82,8 @@ private:
 
     void applyWindowLayout(int windowId, const TmuxLayoutNode &layout);
     bool focusPane(int paneId);
+    void maximizePaneInWindow(int windowId, int paneId);
+    void clearMaximizeInWindow(int windowId);
     void setWindowTabTitle(int windowId, const QString &name);
     void refreshPaneTitles();
     void handleListWindowsResponse(bool success, const QString &response);
@@ -96,6 +100,7 @@ private:
 
     QMap<int, int> _windowToTabIndex;
     QMap<int, QList<int>> _windowPanes;
+    QSet<int> _zoomedWindows;
 
     QTimer *_paneTitleTimer;
 

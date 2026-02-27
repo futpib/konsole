@@ -38,6 +38,9 @@ private Q_SLOTS:
     void testForcedSizeFromSmallerClientMultiPane();
     void testClearScrollbackSyncToTmux();
     void testClearScrollbackAndResetSyncToTmux();
+    void testTmuxZoomFromKonsole();
+    void testTmuxZoomFromTmux();
+    void testTmuxZoomSurvivesLayoutChanges();
 
 private:
     QTemporaryDir m_tmuxTmpDir;

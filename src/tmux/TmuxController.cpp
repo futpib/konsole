@@ -18,6 +18,7 @@
 #include "session/Session.h"
 #include "terminalDisplay/TerminalDisplay.h"
 #include "widgets/ViewContainer.h"
+#include "widgets/ViewSplitter.h"
 
 #include <QLoggingCategory>
 
@@ -165,6 +166,11 @@ void TmuxController::requestClearHistoryAndReset(Session *session)
         _gateway->sendCommand(TmuxCommand(QStringLiteral("send-keys")).flag(QStringLiteral("-R")).paneTarget(paneId).arg(QStringLiteral("C-l")));
         _gateway->sendCommand(TmuxCommand(QStringLiteral("clear-history")).paneTarget(paneId));
     }
+}
+
+void TmuxController::requestToggleZoomPane(int paneId)
+{
+    _gateway->sendCommand(TmuxCommand(QStringLiteral("resize-pane")).flag(QStringLiteral("-Z")).paneTarget(paneId));
 }
 
 void TmuxController::requestDetach()
@@ -331,10 +337,7 @@ void TmuxController::handleListWindowsResponse(bool success, const QString &resp
 
 void TmuxController::onLayoutChanged(int windowId, const QString &layout, const QString &visibleLayout, bool zoomed)
 {
-    Q_UNUSED(visibleLayout)
-    Q_UNUSED(zoomed)
-
-    qCDebug(KonsoleTmuxController) << "onLayoutChanged: windowId=" << windowId << "layout=" << layout << "state=" << static_cast<int>(_state);
+    qCDebug(KonsoleTmuxController) << "onLayoutChanged: windowId=" << windowId << "layout=" << layout << "zoomed=" << zoomed << "state=" << static_cast<int>(_state);
 
     auto parsed = TmuxLayoutParser::parse(layout);
     if (parsed.has_value()) {
@@ -353,6 +356,20 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
         return;
     }
 
+    // Handle zoom state transitions
+    if (!zoomed && _zoomedWindows.contains(windowId)) {
+        // Exiting zoom — clear Konsole's maximize state before applying layout
+        _zoomedWindows.remove(windowId);
+        clearMaximizeInWindow(windowId);
+    }
+
+    // While zoomed, skip layout apply — the pane is maximized locally and
+    // applying the full layout would re-apply setForcedSize, shrinking the
+    // zoomed display back to its tmux grid size.
+    if (zoomed && _zoomedWindows.contains(windowId)) {
+        return;
+    }
+
     if (parsed.has_value()) {
         setState(State::ApplyingLayout);
         applyWindowLayout(windowId, parsed.value());
@@ -366,6 +383,32 @@ void TmuxController::onLayoutChanged(int windowId, const QString &layout, const 
         //    the previously focused display — we need to focus the new one.
         if (_activePaneId >= 0 && _windowPanes.value(windowId).contains(_activePaneId)) {
             focusPane(_activePaneId);
+        }
+
+        // Entering zoom — the full layout was applied above (it contains all panes),
+        // now maximize the zoomed pane using Konsole's local maximize.
+        if (zoomed && !_zoomedWindows.contains(windowId)) {
+            _zoomedWindows.insert(windowId);
+            // Parse the visible layout to find which pane is zoomed
+            auto visibleParsed = TmuxLayoutParser::parse(visibleLayout);
+            if (visibleParsed.has_value()) {
+                std::function<int(const TmuxLayoutNode &)> findLeafPane = [&](const TmuxLayoutNode &node) -> int {
+                    if (node.type == TmuxLayoutNodeType::Leaf) {
+                        return node.paneId;
+                    }
+                    for (const auto &child : node.children) {
+                        int id = findLeafPane(child);
+                        if (id >= 0) {
+                            return id;
+                        }
+                    }
+                    return -1;
+                };
+                int zoomedPaneId = findLeafPane(visibleParsed.value());
+                if (zoomedPaneId >= 0) {
+                    maximizePaneInWindow(windowId, zoomedPaneId);
+                }
+            }
         }
     }
 }
@@ -442,6 +485,48 @@ bool TmuxController::focusPane(int paneId)
     return false;
 }
 
+void TmuxController::maximizePaneInWindow(int windowId, int paneId)
+{
+    int tabIndex = _windowToTabIndex.value(windowId, -1);
+    if (tabIndex < 0) {
+        return;
+    }
+    TabbedViewContainer *container = _viewManager->activeContainer();
+    if (!container) {
+        return;
+    }
+    ViewSplitter *splitter = container->viewSplitterAt(tabIndex);
+    if (!splitter) {
+        return;
+    }
+    Session *session = _paneManager->sessionForPane(paneId);
+    if (!session) {
+        return;
+    }
+    const auto displays = session->views();
+    if (displays.isEmpty()) {
+        return;
+    }
+    splitter->setMaximizedTerminal(displays.first());
+}
+
+void TmuxController::clearMaximizeInWindow(int windowId)
+{
+    int tabIndex = _windowToTabIndex.value(windowId, -1);
+    if (tabIndex < 0) {
+        return;
+    }
+    TabbedViewContainer *container = _viewManager->activeContainer();
+    if (!container) {
+        return;
+    }
+    ViewSplitter *splitter = container->viewSplitterAt(tabIndex);
+    if (!splitter) {
+        return;
+    }
+    splitter->clearMaximized();
+}
+
 void TmuxController::onSessionChanged(int sessionId, const QString &name)
 {
     _sessionId = sessionId;
@@ -458,6 +543,7 @@ void TmuxController::cleanup()
     _paneManager->destroyAllPaneSessions();
     _windowToTabIndex.clear();
     _windowPanes.clear();
+    _zoomedWindows.clear();
 }
 
 void TmuxController::onExit(const QString &reason)
