@@ -1941,7 +1941,15 @@ void SessionController::clearHistoryAndReset()
     emulation->reset(false, true);
     session()->refresh();
     session()->setCodec(name);
-    clearHistory();
+
+    session()->clearHistory();
+    view()->updateImage();
+    view()->repaint();
+
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(session());
+    if (controller) {
+        controller->requestClearHistoryAndReset(session());
+    }
 }
 
 static QList<TerminalDisplay *> siblingDisplaysForSync(TerminalDisplay *display)

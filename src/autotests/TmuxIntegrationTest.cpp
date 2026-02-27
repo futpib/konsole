@@ -1947,6 +1947,178 @@ void TmuxIntegrationTest::testForcedSizeFromSmallerClientMultiPane()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testClearScrollbackSyncToTmux()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // 1. Setup tmux session with a single pane running bash
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌───────────────────────────────────┐
+        │ cmd: bash --norc --noprofile      │
+        │                                   │
+        │                                   │
+        │                                   │
+        │                                   │
+        └───────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    // 2. Generate scrollback content
+    QProcess sendKeys;
+    sendKeys.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
+                              QStringLiteral("for i in $(seq 1 200); do echo \"SCROLLBACK_LINE_$i\"; done"), QStringLiteral("Enter")});
+    QVERIFY(sendKeys.waitForFinished(5000));
+    QCOMPARE(sendKeys.exitCode(), 0);
+
+    QTest::qWait(500);
+
+    // 3. Check tmux server-side scrollback size
+    auto getTmuxHistorySize = [&]() -> int {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-p"), QStringLiteral("#{history_size}")});
+        check.waitForFinished(3000);
+        return QString::fromUtf8(check.readAllStandardOutput()).trimmed().toInt();
+    };
+
+    QVERIFY2(getTmuxHistorySize() > 0, "Expected tmux history_size > 0 before attach");
+
+    // 4. Attach Konsole
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    QTest::qWait(2000);
+
+    QVERIFY2(getTmuxHistorySize() > 0, "Expected history_size > 0 after attach");
+
+    // 5. requestClearHistory clears scrollback only, visible content remains
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSession);
+    QVERIFY(controller);
+
+    controller->requestClearHistory(paneSession);
+
+    QTRY_VERIFY_WITH_TIMEOUT(getTmuxHistorySize() == 0, 5000);
+
+    // Visible content should still show recent output
+    auto captureTmuxPane = [&]() -> QString {
+        QProcess capture;
+        capture.start(tmuxPath, {QStringLiteral("capture-pane"), QStringLiteral("-t"), ctx.sessionName,
+                                 QStringLiteral("-p")});
+        capture.waitForFinished(3000);
+        return QString::fromUtf8(capture.readAllStandardOutput());
+    };
+
+    QString visible = captureTmuxPane();
+    QVERIFY2(visible.contains(QStringLiteral("SCROLLBACK_LINE_200")),
+             qPrintable(QStringLiteral("Expected visible pane to still contain recent output, got: ") + visible));
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testClearScrollbackAndResetSyncToTmux()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // 1. Setup tmux session with a single pane running bash
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌───────────────────────────────────┐
+        │ cmd: bash --norc --noprofile      │
+        │                                   │
+        │                                   │
+        │                                   │
+        │                                   │
+        └───────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    // 2. Generate scrollback content
+    QProcess sendKeys;
+    sendKeys.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
+                              QStringLiteral("for i in $(seq 1 200); do echo \"SCROLLBACK_LINE_$i\"; done"), QStringLiteral("Enter")});
+    QVERIFY(sendKeys.waitForFinished(5000));
+    QCOMPARE(sendKeys.exitCode(), 0);
+
+    QTest::qWait(500);
+
+    auto getTmuxHistorySize = [&]() -> int {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("display-message"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-p"), QStringLiteral("#{history_size}")});
+        check.waitForFinished(3000);
+        return QString::fromUtf8(check.readAllStandardOutput()).trimmed().toInt();
+    };
+
+    auto captureTmuxPane = [&]() -> QString {
+        QProcess capture;
+        capture.start(tmuxPath, {QStringLiteral("capture-pane"), QStringLiteral("-t"), ctx.sessionName,
+                                 QStringLiteral("-p"), QStringLiteral("-S"), QStringLiteral("-")});
+        capture.waitForFinished(3000);
+        return QString::fromUtf8(capture.readAllStandardOutput());
+    };
+
+    QVERIFY2(getTmuxHistorySize() > 0, "Expected tmux history_size > 0 before attach");
+
+    // 3. Attach Konsole
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    QTest::qWait(2000);
+
+    QVERIFY2(getTmuxHistorySize() > 0, "Expected history_size > 0 after attach");
+
+    // 4. requestClearHistoryAndReset clears visible screen AND scrollback
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSession);
+    QVERIFY(controller);
+
+    controller->requestClearHistoryAndReset(paneSession);
+
+    // Wait for both commands to take effect
+    QTRY_VERIFY_WITH_TIMEOUT(getTmuxHistorySize() == 0, 5000);
+
+    // Visible content should no longer contain the output lines
+    QString allContent = captureTmuxPane();
+    QVERIFY2(!allContent.contains(QStringLiteral("SCROLLBACK_LINE_")),
+             qPrintable(QStringLiteral("Expected all SCROLLBACK_LINE content to be cleared, got: ") + allContent));
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 QTEST_MAIN(TmuxIntegrationTest)
 
 #include "moc_TmuxIntegrationTest.cpp"

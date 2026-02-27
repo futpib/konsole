@@ -47,6 +47,7 @@ public:
     void requestMovePane(int srcPaneId, int dstPaneId, Qt::Orientation orientation, bool before);
     void requestRenameWindow(int windowId, const QString &name);
     void requestClearHistory(Session *session);
+    void requestClearHistoryAndReset(Session *session);
     void requestDetach();
 
     bool hasPane(int paneId) const;

@@ -36,6 +36,8 @@ private Q_SLOTS:
     void testNestedResizeSurvivesFocusCycle();
     void testForcedSizeFromSmallerClient();
     void testForcedSizeFromSmallerClientMultiPane();
+    void testClearScrollbackSyncToTmux();
+    void testClearScrollbackAndResetSyncToTmux();
 
 private:
     QTemporaryDir m_tmuxTmpDir;

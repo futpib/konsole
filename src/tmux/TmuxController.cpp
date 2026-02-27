@@ -156,6 +156,17 @@ void TmuxController::requestClearHistory(Session *session)
     }
 }
 
+void TmuxController::requestClearHistoryAndReset(Session *session)
+{
+    int paneId = _paneManager->paneIdForSession(session);
+    if (paneId >= 0) {
+        // send-keys -R resets terminal state and C-l clears the visible screen,
+        // then clear-history removes the scrollback that was pushed off-screen.
+        _gateway->sendCommand(TmuxCommand(QStringLiteral("send-keys")).flag(QStringLiteral("-R")).paneTarget(paneId).arg(QStringLiteral("C-l")));
+        _gateway->sendCommand(TmuxCommand(QStringLiteral("clear-history")).paneTarget(paneId));
+    }
+}
+
 void TmuxController::requestDetach()
 {
     _gateway->detach();
