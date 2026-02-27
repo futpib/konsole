@@ -23,6 +23,7 @@ class QMenu;
 
 namespace Konsole
 {
+class TabPageWidget;
 class ViewProperties;
 class ViewManager;
 class TabbedViewContainer;
@@ -142,6 +143,12 @@ public:
      */
     ViewSplitter *viewSplitterAt(int index);
 
+    /** Returns the tab index for the given splitter (looks through TabPageWidget wrappers). */
+    int indexOfSplitter(ViewSplitter *splitter);
+
+    /** Returns the TabPageWidget at the given tab index, or nullptr. */
+    TabPageWidget *tabPageAt(int index);
+
     ViewSplitter *findSplitter(int id);
 
     /**
@@ -234,6 +241,7 @@ private Q_SLOTS:
     void activateView(const QString &xdgActivationToken);
 
 private:
+    void closeTmuxTab(const QList<TerminalDisplay *> &terminals);
     void forgetView();
 
     struct TabIconState {

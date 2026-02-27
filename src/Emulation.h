@@ -475,6 +475,16 @@ protected:
     virtual void receiveChars(const QVector<uint> &c);
 
     /**
+     * Called from receiveData() with the raw bytes before UTF-8 decoding.
+     * Subclasses can override to intercept raw byte data (e.g. for DCS
+     * passthrough in tmux control mode where UTF-8 round-tripping is lossy).
+     * Returns true if the raw data was fully handled and receiveChars()
+     * should be skipped.
+     */
+    virtual bool receiveRawData(const char *text, int length);
+
+
+    /**
      * Sets the active screen.  The terminal has two screens, primary and alternate.
      * The primary screen is used by default.  When certain interactive programs such
      * as Vim are run, they trigger a switch to the alternate screen.

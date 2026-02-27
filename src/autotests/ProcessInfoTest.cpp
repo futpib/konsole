@@ -40,7 +40,7 @@ void ProcessInfoTest::testProcessValidity()
     QVERIFY(createProcInfo(proc)->isValid());
 
     proc.close();
-    proc.waitForFinished(1000);
+    proc.waitForFinished(100);
 }
 
 void ProcessInfoTest::testProcessCwd()
@@ -65,7 +65,7 @@ void ProcessInfoTest::testProcessCwd()
     QCOMPARE(currDir, startDir);
 
     proc.write(QStringLiteral("cd ..\n").toLocal8Bit());
-    proc.waitForReadyRead(1000);
+    proc.waitForReadyRead(100);
     procInfo->update();
 
     currDir = procInfo->currentDir(&ok);
@@ -73,7 +73,7 @@ void ProcessInfoTest::testProcessCwd()
     QCOMPARE(currDir, parentDir);
 
     proc.write(QStringLiteral("exit\n").toLocal8Bit());
-    proc.waitForFinished(1000);
+    proc.waitForFinished(100);
 #endif
 }
 
@@ -94,9 +94,9 @@ void ProcessInfoTest::testProcessNameSpecialChars()
 
     for (auto specName : specNames) {
         mainProc.write(QStringLiteral("cp $(which bash) '%1'\n").arg(specName).toLocal8Bit());
-        mainProc.waitForReadyRead(1000);
+        mainProc.waitForReadyRead(100);
         mainProc.write(QStringLiteral("exec %1'%2'\n").arg(QDir::currentPath() + QDir::separator(), specName).toLocal8Bit());
-        mainProc.waitForReadyRead(1000);
+        mainProc.waitForReadyRead(100);
 
         mainProcInfo->update();
 
@@ -108,7 +108,7 @@ void ProcessInfoTest::testProcessNameSpecialChars()
     }
 
     mainProc.write(QStringLiteral("exit\n").toLocal8Bit());
-    mainProc.waitForFinished(1000);
+    mainProc.waitForFinished(100);
 #endif
 }
 

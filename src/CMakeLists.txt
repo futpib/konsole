@@ -245,6 +245,7 @@ set(konsoleprivate_SRCS ${windowadaptors_SRCS}
 
                         ${sessionadaptors_SRCS}
                         session/Session.cpp
+                        session/VirtualSession.cpp
                         session/SessionController.cpp
                         session/SessionDisplayConnection.cpp
                         session/SessionGroup.cpp
@@ -254,9 +255,20 @@ set(konsoleprivate_SRCS ${windowadaptors_SRCS}
 
                         widgets/TerminalDisplayAccessible.cpp
                         widgets/TerminalHeaderBar.cpp
+                        widgets/TabPageWidget.cpp
                         widgets/ViewContainer.cpp
                         widgets/ViewSplitter.cpp
                         widgets/KonsolePrintManager.cpp
+
+                        tmux/TmuxLayoutParser.cpp
+                        tmux/TmuxGateway.cpp
+                        tmux/TmuxPaneManager.cpp
+                        tmux/TmuxLayoutManager.cpp
+                        tmux/TmuxResizeCoordinator.cpp
+                        tmux/TmuxPaneStateRecovery.cpp
+                        tmux/TmuxController.cpp
+                        tmux/TmuxControllerRegistry.cpp
+                        tmux/TmuxSessionBridge.cpp
 
                         ${dbus_xml_srcs}
 

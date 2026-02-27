@@ -29,6 +29,10 @@ class ViewSplitterHandle : public QSplitterHandle
 public:
     ViewSplitterHandle(Qt::Orientation orientation, QSplitter *parent);
 
+Q_SIGNALS:
+    void dragStarted();
+    void dragFinished();
+
 protected:
     void mousePressEvent(QMouseEvent *ev) override;
     void mouseReleaseEvent(QMouseEvent *ev) override;
@@ -166,6 +170,12 @@ public:
         return _id;
     }
 
+    void setTmuxMode(bool tmuxMode);
+    bool tmuxMode() const
+    {
+        return _tmuxMode;
+    }
+
 protected:
     void dragEnterEvent(QDragEnterEvent *ev) override;
     void dragMoveEvent(QDragMoveEvent *ev) override;
@@ -195,6 +205,7 @@ private:
     bool m_blockPropagatedDeletion = false;
 
     int _id;
+    bool _tmuxMode = false;
 
     static bool m_drawTopLevelHandler;
     static Qt::Orientation m_topLevelHandlerDrawnOrientation;

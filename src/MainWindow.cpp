@@ -73,6 +73,9 @@
 
 #include "pluginsystem/IKonsolePlugin.h"
 
+#include "tmux/TmuxController.h"
+#include "tmux/TmuxControllerRegistry.h"
+
 #include <konsoledebug.h>
 
 using namespace Konsole;
@@ -304,6 +307,12 @@ void MainWindow::activeViewChanged(SessionController *controller)
     // Update window icon and progress to newly activated session's icon
     updateWindowIcon();
     updateProgress();
+
+    // Disable clone-tab for tmux pane sessions
+    if (auto *cloneAction = actionCollection()->action(QStringLiteral("clone-tab"))) {
+        bool isTmux = TmuxControllerRegistry::instance()->controllerForSession(controller->session()) != nullptr;
+        cloneAction->setEnabled(!isTmux);
+    }
 
     for (IKonsolePlugin *plugin : _plugins) {
         plugin->activeViewChanged(controller, this);
@@ -659,6 +668,25 @@ void MainWindow::openUrls(const QList<QUrl> &urls)
 
 void MainWindow::newTab()
 {
+    if (_pluggedController && _pluggedController->session()) {
+        auto *controller = TmuxControllerRegistry::instance()->controllerForSession(_pluggedController->session());
+        if (controller) {
+            int result = KMessageBox::questionTwoActionsCancel(
+                this,
+                i18n("The current session is a tmux pane. Would you like to create a new tmux tab or a local tab?"),
+                i18n("New Tab"),
+                KGuiItem(i18nc("@action:button", "Tmux Tab"), QStringLiteral("utilities-terminal")),
+                KGuiItem(i18nc("@action:button", "Local Tab"), QStringLiteral("tab-new")),
+                KStandardGuiItem::cancel(),
+                QStringLiteral("NewTabFromTmuxOpensTmux"));
+            if (result == KMessageBox::PrimaryAction) {
+                controller->requestNewWindow();
+                return;
+            } else if (result == KMessageBox::Cancel) {
+                return;
+            }
+        }
+    }
     Profile::Ptr defaultProfile = ProfileManager::instance()->defaultProfile();
     createSession(defaultProfile, activeSessionDir());
 }
@@ -681,6 +709,11 @@ void MainWindow::cloneTab()
     Q_ASSERT(_pluggedController);
 
     Session *session = _pluggedController->session();
+
+    if (TmuxControllerRegistry::instance()->controllerForSession(session)) {
+        return;
+    }
+
     Profile::Ptr profile = SessionManager::instance()->sessionProfile(session);
     if (profile) {
         createSession(profile, activeSessionDir());

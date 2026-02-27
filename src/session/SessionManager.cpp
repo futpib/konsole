@@ -32,6 +32,7 @@
 #include "profile/ProfileManager.h"
 
 #include "Session.h"
+#include "VirtualSession.h"
 
 #include "terminalDisplay/TerminalDisplay.h"
 #include "terminalDisplay/TerminalFonts.h"
@@ -105,6 +106,23 @@ Session *SessionManager::createSession(Profile::Ptr profile)
     connect(session, &Konsole::Session::finished, this, &SessionManager::sessionTerminated);
 
     // add session to active list
+    _sessions << session;
+    _sessionProfiles.insert(session, profile);
+
+    return session;
+}
+
+VirtualSession *SessionManager::createVirtualSession(Profile::Ptr profile)
+{
+    if (!profile) {
+        profile = ProfileManager::instance()->defaultProfile();
+    }
+
+    auto session = new VirtualSession();
+    applyProfile(session, profile, false);
+
+    connect(session, &Konsole::Session::finished, this, &SessionManager::sessionTerminated);
+
     _sessions << session;
     _sessionProfiles.insert(session, profile);
 

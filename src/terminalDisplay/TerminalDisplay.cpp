@@ -62,6 +62,7 @@
 #include "PrintOptions.h"
 #include "Screen.h"
 #include "ViewManager.h" // for colorSchemeForProfile. // TODO: Rewrite this.
+#include "widgets/ViewSplitter.h"
 #include "WindowSystemInfo.h"
 #include "profile/Profile.h"
 #include "session/Session.h"
@@ -760,6 +761,10 @@ void TerminalDisplay::paintEvent(QPaintEvent *pe)
     // set https://bugreports.qt.io/browse/QTBUG-66036
     paint.setRenderHint(QPainter::TextAntialiasing, _terminalFont->antialiasText());
 
+    if (!_screenWindow) {
+        return;
+    }
+
     for (const QRect &rect : std::as_const(dirtyImageRegion)) {
         _terminalPainter->drawContents(_image, paint, rect, false, _imageSize, _bidiEnabled, _lineProperties, _screenWindow->screen()->ulColorTable());
     }
@@ -1002,6 +1007,11 @@ void TerminalDisplay::resizeEvent(QResizeEvent *event)
 {
     Q_UNUSED(event)
 
+    // Clear forced grid dimensions so calcGeometry() recomputes from widget pixels.
+    // Forced dimensions are re-applied when tmux sends the next %layout-change.
+    _forcedColumns = 0;
+    _forcedLines = 0;
+
     if (contentsRect().isValid()) {
         // NOTE: This calls setTabText() in TabbedViewContainer::updateTitle(),
         // which might update the widget size again. New resizeEvent
@@ -1116,16 +1126,21 @@ void TerminalDisplay::calcGeometry()
 
     int fontWidth = _terminalFont->fontWidth();
 
-    // ensure that display is always at least one column wide,
-    // and clamp it to MAX_LINE_WIDTH-1 wide to prevent text shaping buffer overflows
-    _columns = qBound(1, _contentRect.width() / fontWidth, MAX_LINE_WIDTH - 1);
-    _usedColumns = qMin(_usedColumns, _columns);
+    if (_forcedColumns > 0 && _forcedLines > 0) {
+        _columns = qBound(1, _forcedColumns, MAX_LINE_WIDTH - 1);
+        _lines = qMax(1, _forcedLines);
+    } else {
+        // ensure that display is always at least one column wide,
+        // and clamp it to MAX_LINE_WIDTH-1 wide to prevent text shaping buffer overflows
+        _columns = qBound(1, _contentRect.width() / fontWidth, MAX_LINE_WIDTH - 1);
 
-    // ensure that display is always at least one line high
-    _lines = qMax(1, _contentRect.height() / _terminalFont->fontHeight());
+        // ensure that display is always at least one line high
+        _lines = qMax(1, _contentRect.height() / _terminalFont->fontHeight());
+    }
+    _usedColumns = qMin(_usedColumns, _columns);
     _usedLines = qMin(_usedLines, _lines);
 
-    if (_centerContents) {
+    if (_centerContents && _forcedColumns <= 0 && _forcedLines <= 0) {
         QSize unusedPixels = _contentRect.size() - QSize(_columns * fontWidth, _lines * _terminalFont->fontHeight());
         _contentRect.adjust(unusedPixels.width() / 2, unusedPixels.height() / 2, 0, 0);
     }
@@ -1144,6 +1159,16 @@ void TerminalDisplay::setSize(int columns, int lines)
         _size = newSize;
         updateGeometry();
     }
+}
+
+void TerminalDisplay::setForcedSize(int columns, int lines)
+{
+    if (_forcedColumns == columns && _forcedLines == lines) {
+        return;
+    }
+    _forcedColumns = columns;
+    _forcedLines = lines;
+    updateImageSize();
 }
 
 QSize TerminalDisplay::sizeHint() const
@@ -1735,6 +1760,12 @@ void TerminalDisplay::mouseDoubleClickEvent(QMouseEvent *ev)
 
 void TerminalDisplay::wheelEvent(QWheelEvent *ev)
 {
+    // Guard against events arriving after the session has been destroyed
+    // (e.g. during tmux pane teardown)
+    if (!_sessionController || _sessionController->session().isNull()) {
+        return;
+    }
+
     static QElapsedTimer enable_zoom_timer;
     static bool enable_zoom = true;
     // Only vertical scrolling is supported
@@ -1753,13 +1784,27 @@ void TerminalDisplay::wheelEvent(QWheelEvent *ev)
         _scrollWheelState.addWheelEvent(ev);
 
         int steps = _scrollWheelState.consumeLegacySteps(ScrollState::DEFAULT_ANGLE_SCROLL_LINE);
+
+        QList<TerminalDisplay *> targets;
+        if (_sessionController && _sessionController->session()
+            && _sessionController->session()->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+            if (auto *splitter = qobject_cast<ViewSplitter *>(parentWidget())) {
+                targets = splitter->getToplevelSplitter()->findChildren<TerminalDisplay *>();
+            }
+        }
+        if (targets.isEmpty()) {
+            targets.append(this);
+        }
+
         for (; steps > 0; --steps) {
-            // wheel-up for increasing font size
-            _terminalFont->increaseFontSize();
+            for (auto *display : std::as_const(targets)) {
+                display->terminalFont()->increaseFontSize();
+            }
         }
         for (; steps < 0; ++steps) {
-            // wheel-down for decreasing font size
-            _terminalFont->decreaseFontSize();
+            for (auto *display : std::as_const(targets)) {
+                display->terminalFont()->decreaseFontSize();
+            }
         }
         return;
     } else if (!usesMouseTracking() && (_scrollBar->maximum() > 0)) {
@@ -1776,14 +1821,10 @@ void TerminalDisplay::wheelEvent(QWheelEvent *ev)
         // Don't call propagateSize and update, since nothing changed.
         _scrollBar->applyScrollBarPosition(false);
 
-        Q_ASSERT(_sessionController != nullptr);
-
         _sessionController->setSearchStartToWindowCurrentLine();
         _scrollWheelState.clearAll();
     } else if (!_readOnly) {
         _scrollWheelState.addWheelEvent(ev);
-
-        Q_ASSERT(!_sessionController->session().isNull());
 
         if (!usesMouseTracking() && !_sessionController->session()->isPrimaryScreen() && _scrollBar->alternateScrolling()) {
             // Send simulated up / down key presses to the terminal program
@@ -3192,6 +3233,11 @@ void TerminalDisplay::applyProfile(const Profile::Ptr &profile)
 
     // set scroll-bar position
     _scrollBar->setScrollBarPosition(Enum::ScrollBarPositionEnum(profile->property<int>(Profile::ScrollBarPosition)));
+    // Force hidden scrollbar for tmux panes — tmux doesn't account for scrollbar width
+    if (_sessionController && _sessionController->session()
+        && _sessionController->session()->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+        _scrollBar->setScrollBarPosition(Enum::ScrollBarHidden);
+    }
     _scrollBar->setScrollFullPage(profile->property<bool>(Profile::ScrollFullPage));
 
     // show hint about terminal size after resizing

@@ -35,6 +35,7 @@ ecm_add_tests(
     ProcessInfoTest.cpp
     ProfileTest.cpp
     ScreenTest.cpp
+    ScreenWindowTest.cpp
     ShellCommandTest.cpp
     TerminalCharacterDecoderTest.cpp
     Vt102EmulationTest.cpp
@@ -53,6 +54,22 @@ ecm_add_tests(
     SessionTest.cpp
     TerminalInterfaceTest.cpp
     TerminalTest.cpp
+    TmuxLayoutParserTest.cpp
+    TmuxPaneStateRecoveryTest.cpp
     ViewManagerTest.cpp
+    LINK_LIBRARIES ${KONSOLE_TEST_LIBS} KF6::Parts
+)
+
+ecm_add_test(
+    TmuxTestDSL.cpp
+    TmuxTestDSLTest.cpp
+    TEST_NAME TmuxTestDSLTest
+    LINK_LIBRARIES ${KONSOLE_TEST_LIBS} KF6::Parts
+)
+
+ecm_add_test(
+    TmuxTestDSL.cpp
+    TmuxIntegrationTest.cpp
+    TEST_NAME TmuxIntegrationTest
     LINK_LIBRARIES ${KONSOLE_TEST_LIBS} KF6::Parts
 )

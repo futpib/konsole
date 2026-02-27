@@ -48,6 +48,9 @@
 #include "session/SessionManager.h"
 
 #include "terminalDisplay/TerminalDisplay.h"
+#include "tmux/TmuxController.h"
+#include "tmux/TmuxControllerRegistry.h"
+#include "tmux/TmuxSessionBridge.h"
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
@@ -423,15 +426,21 @@ void ViewManager::switchToView(int index)
 
 void ViewManager::switchToTerminalDisplay(Konsole::TerminalDisplay *terminalDisplay)
 {
+    if (!terminalDisplay) {
+        return;
+    }
     auto splitter = qobject_cast<ViewSplitter *>(terminalDisplay->parentWidget());
+    if (!splitter) {
+        return;
+    }
     auto toplevelSplitter = splitter->getToplevelSplitter();
 
     // Focus the TermialDisplay
     terminalDisplay->setFocus();
 
-    if (_viewContainer->currentWidget() != toplevelSplitter) {
+    if (_viewContainer->viewSplitterAt(_viewContainer->currentIndex()) != toplevelSplitter) {
         // Focus the tab
-        switchToView(_viewContainer->indexOf(toplevelSplitter));
+        switchToView(_viewContainer->indexOfSplitter(toplevelSplitter));
     }
 }
 
@@ -709,6 +718,10 @@ void ViewManager::sessionFinished(Session *session)
         return;
     }
 
+    if (!view) {
+        return;
+    }
+
     // Before deleting the view, let's unmaximize if it's maximized.
     auto *splitter = qobject_cast<ViewSplitter *>(view->parentWidget());
     if (splitter == nullptr) {
@@ -736,6 +749,14 @@ void ViewManager::sessionFinished(Session *session)
     }
 }
 
+void ViewManager::onProtocolModeDetected(const QString &protocolId, Session *session)
+{
+    if (protocolId == QStringLiteral("tmux")) {
+        // Self-managing: parented to this ViewManager, self-destructs on tmux end
+        new TmuxSessionBridge(session, this, this);
+    }
+}
+
 void ViewManager::focusAnotherTerminal(ViewSplitter *toplevelSplitter)
 {
     auto tabTterminalDisplays = toplevelSplitter->findChildren<TerminalDisplay *>();
@@ -745,7 +766,7 @@ void ViewManager::focusAnotherTerminal(ViewSplitter *toplevelSplitter)
 
     if (tabTterminalDisplays.count() > 1) {
         // Give focus to the last used terminal in this tab
-        for (const auto *historyItem : std::as_const(_terminalDisplayHistory)) {
+        for (const auto &historyItem : std::as_const(_terminalDisplayHistory)) {
             for (auto *terminalDisplay : std::as_const(tabTterminalDisplays)) {
                 if (terminalDisplay == historyItem) {
                     terminalDisplay->setFocus(Qt::OtherFocusReason);
@@ -810,10 +831,26 @@ void ViewManager::splitAutoNextTab()
 
 void ViewManager::splitView(Qt::Orientation orientation, bool fromNextTab)
 {
+    // For tmux panes, delegate the split to tmux instead of creating a local session.
+    // Tmux will send %layout-change which triggers applyLayout to rebuild the splitter.
+    if (!fromNextTab) {
+        int currentSessionId = currentSession();
+        if (currentSessionId >= 0) {
+            Session *activeSession = SessionManager::instance()->idToSession(currentSessionId);
+            if (activeSession && activeSession->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+                auto *ctrl = TmuxControllerRegistry::instance()->controllerForSession(activeSession);
+                if (ctrl) {
+                    ctrl->requestSplitPane(ctrl->paneIdForSession(activeSession), orientation);
+                    return;
+                }
+            }
+        }
+    }
+
     TerminalDisplay *terminalDisplay;
     TerminalDisplay *focused;
     if (fromNextTab) {
-        int tabId = _viewContainer->indexOf(_viewContainer->activeViewSplitter());
+        int tabId = _viewContainer->indexOfSplitter(_viewContainer->activeViewSplitter());
         auto nextTab = _viewContainer->viewSplitterAt(tabId + 1);
 
         if (!nextTab) {
@@ -994,6 +1031,7 @@ TerminalDisplay *ViewManager::createView(Session *session)
     //
     // Use Qt::UniqueConnection to avoid duplicate connection
     connect(session, &Konsole::Session::finished, this, &Konsole::ViewManager::sessionFinished, Qt::UniqueConnection);
+    connect(session, &Konsole::Session::protocolModeDetected, this, &Konsole::ViewManager::onProtocolModeDetected, Qt::UniqueConnection);
     TerminalDisplay *display = createTerminalDisplay();
     createController(session, display);
 
@@ -1078,8 +1116,6 @@ void ViewManager::setNavigationMethod(NavigationMethod method)
     enableAction(QStringLiteral("split-view-left-right-next-tab"));
     enableAction(QStringLiteral("split-view-top-bottom-next-tab"));
     enableAction(QStringLiteral("rename-session"));
-    enableAction(QStringLiteral("move-view-left"));
-    enableAction(QStringLiteral("move-view-right"));
 }
 
 ViewManager::NavigationMethod ViewManager::navigationMethod() const
@@ -1269,7 +1305,7 @@ void ViewManager::saveSessions(KConfigGroup &group)
 {
     QJsonArray rootArray;
     for (int i = 0; i < _viewContainer->count(); i++) {
-        auto *splitter = qobject_cast<QSplitter *>(_viewContainer->widget(i));
+        auto *splitter = _viewContainer->viewSplitterAt(i);
         rootArray.append(saveSessionsRecurse(splitter));
     }
 
@@ -1770,6 +1806,9 @@ void ViewManager::updateTerminalDisplayHistory(TerminalDisplay *terminalDisplay,
             // (i.e. when Ctrl-Tab has been released)
             terminalDisplay = _terminalDisplayHistory[_terminalDisplayHistoryIndex];
             _terminalDisplayHistoryIndex = -1;
+            if (!terminalDisplay) {
+                return;
+            }
         } else {
             return;
         }

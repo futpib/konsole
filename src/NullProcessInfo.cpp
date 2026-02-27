@@ -13,6 +13,16 @@ NullProcessInfo::NullProcessInfo(int pid)
 {
 }
 
+void NullProcessInfo::setExternalName(const QString &name)
+{
+    setName(name);
+}
+
+void NullProcessInfo::setExternalCurrentDir(const QString &dir)
+{
+    setCurrentDir(dir);
+}
+
 void NullProcessInfo::readProcessInfo(int /*pid*/)
 {
 }

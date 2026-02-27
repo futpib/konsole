@@ -463,6 +463,308 @@ void Vt102EmulationTest::testBufferedUpdates()
     QCOMPARE(outputChangedSpy.count(), 2);
 }
 
+void Vt102EmulationTest::testTmuxControlModePassthrough()
+{
+    // Verify that entering tmux control mode (DCS 1000p) works
+    // and that lines are delivered via tmuxControlModeLineReceived
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    QSignalSpy startedSpy(&em, &Vt102Emulation::tmuxControlModeStarted);
+    QSignalSpy lineSpy(&em, &Vt102Emulation::tmuxControlModeLineReceived);
+
+    const uint ESC = 0x1B;
+
+    // Enter DCS 1000p (tmux control mode)
+    em.receiveChars({ESC, 'P', '1', '0', '0', '0', 'p'});
+    QCOMPARE(startedSpy.count(), 1);
+
+    // Send a tmux protocol line: "%begin 123 456 0\n"
+    QVector<uint> line;
+    for (char c : QByteArrayLiteral("%begin 123 456 0\n")) {
+        line.append(static_cast<uint>(c));
+    }
+    em.receiveChars(line);
+    QCOMPARE(lineSpy.count(), 1);
+    QCOMPARE(lineSpy.at(0).at(0).toByteArray(), QByteArrayLiteral("%begin 123 456 0"));
+}
+
+void Vt102EmulationTest::testTmuxControlModeUtf8()
+{
+    // Verify that Unicode codepoints (from the post-UTF-8-decode path)
+    // are re-encoded as UTF-8 when buffered in the tmux line buffer.
+    // receiveChars() receives Unicode codepoints, not raw bytes.
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    QSignalSpy lineSpy(&em, &Vt102Emulation::tmuxControlModeLineReceived);
+
+    const uint ESC = 0x1B;
+
+    // Enter tmux control mode
+    em.receiveChars({ESC, 'P', '1', '0', '0', '0', 'p'});
+
+    // Send Unicode codepoints as they would appear after UTF-8 decoding
+    // ❯ = U+276F, → = U+2192, ─ = U+2500
+    em.receiveChars({0x2192, ' ', 't', 'e', 's', 't', ' ', 0x2500, 0x2500, '\n'});
+
+    QCOMPARE(lineSpy.count(), 1);
+    QByteArray received = lineSpy.at(0).at(0).toByteArray();
+    // Codepoints should be re-encoded as UTF-8
+    // → = U+2192 = \xE2\x86\x92
+    // ─ = U+2500 = \xE2\x94\x80
+    QByteArray expected("\xE2\x86\x92 test \xE2\x94\x80\xE2\x94\x80");
+    QCOMPARE(received, expected);
+}
+
+void Vt102EmulationTest::testTmuxControlModeUtf8ViaReceiveData()
+{
+    // Test the real data path: raw bytes go through receiveData() which
+    // UTF-8 decodes them before passing to receiveChars(). The put()
+    // function must re-encode Unicode codepoints back to UTF-8 for
+    // the tmux line buffer.
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    QSignalSpy lineSpy(&em, &Vt102Emulation::tmuxControlModeLineReceived);
+
+    // Enter tmux control mode via receiveData (DCS 1000p)
+    const char dcs[] = "\033P1000p";
+    em.receiveData(dcs, sizeof(dcs) - 1);
+
+    // Send a tmux protocol line containing UTF-8 text: "→ test ──\n"
+    // → = U+2192 = \xE2\x86\x92
+    // ─ = U+2500 = \xE2\x94\x80
+    const char line[] = "\xE2\x86\x92 test \xE2\x94\x80\xE2\x94\x80\n";
+    em.receiveData(line, sizeof(line) - 1);
+
+    QCOMPARE(lineSpy.count(), 1);
+    QByteArray received = lineSpy.at(0).at(0).toByteArray();
+    QByteArray expected("\xE2\x86\x92 test \xE2\x94\x80\xE2\x94\x80");
+    QCOMPARE(received, expected);
+}
+
+void Vt102EmulationTest::testTmuxControlModeEscInData()
+{
+    // Verify that ESC bytes within tmux control mode data do NOT
+    // break out of DCS passthrough. Only ESC \ (ST) should terminate it.
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    QSignalSpy lineSpy(&em, &Vt102Emulation::tmuxControlModeLineReceived);
+    QSignalSpy endedSpy(&em, &Vt102Emulation::tmuxControlModeEnded);
+
+    const uint ESC = 0x1B;
+
+    // Enter tmux control mode
+    em.receiveChars({ESC, 'P', '1', '0', '0', '0', 'p'});
+
+    // Send a line with ESC sequences (like tmux %output containing terminal escape codes)
+    // This simulates: %output %1 \033[0;32mhello\033[0m\n
+    QVector<uint> line;
+    for (char c : QByteArrayLiteral("%output %1 ")) {
+        line.append(static_cast<uint>(c));
+    }
+    // \033[0;32m
+    line.append(ESC);
+    line.append('[');
+    line.append('0');
+    line.append(';');
+    line.append('3');
+    line.append('2');
+    line.append('m');
+    for (char c : QByteArrayLiteral("hello")) {
+        line.append(static_cast<uint>(c));
+    }
+    // \033[0m
+    line.append(ESC);
+    line.append('[');
+    line.append('0');
+    line.append('m');
+    line.append('\n');
+
+    em.receiveChars(line);
+
+    // Should still be in tmux control mode (ESC didn't terminate it)
+    QCOMPARE(endedSpy.count(), 0);
+    // The line should have been received with ESC bytes preserved
+    QCOMPARE(lineSpy.count(), 1);
+    QByteArray received = lineSpy.at(0).at(0).toByteArray();
+    QVERIFY(received.startsWith("%output %1 "));
+    QVERIFY(received.contains("\033[0;32m"));
+    QVERIFY(received.contains("hello"));
+    QVERIFY(received.contains("\033[0m"));
+}
+
+void Vt102EmulationTest::testTmuxControlModeC1InData()
+{
+    // Verify that 8-bit C1 control codes (0x90, 0x9B, 0x9D, etc.)
+    // do NOT break out of DCS passthrough in tmux control mode.
+    // Uses receiveData() to test the real byte-level path.
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    QSignalSpy lineSpy(&em, &Vt102Emulation::tmuxControlModeLineReceived);
+    QSignalSpy endedSpy(&em, &Vt102Emulation::tmuxControlModeEnded);
+
+    // Enter tmux control mode via receiveData
+    const char dcs[] = "\033P1000p";
+    em.receiveData(dcs, sizeof(dcs) - 1);
+
+    // Send a line containing C1 bytes as they would appear in the raw
+    // PTY stream. These bytes (0x90, 0x9B, 0x9D, 0x98) are 8-bit C1
+    // control codes but inside DCS passthrough they should be treated as data.
+    // Note: the UTF-8 decoder will decode these as Unicode codepoints
+    // U+0090, U+009B, U+009D, U+0098 (C2 90, C2 9B, C2 9D, C2 98 in UTF-8).
+    const char line[] = "data \xC2\x90\xC2\x9B\xC2\x9D\xC2\x98\n";
+    em.receiveData(line, sizeof(line) - 1);
+
+    // Should still be in tmux control mode
+    QCOMPARE(endedSpy.count(), 0);
+    QCOMPARE(lineSpy.count(), 1);
+    QByteArray received = lineSpy.at(0).at(0).toByteArray();
+    QVERIFY(received.startsWith("data "));
+    // The C1 codepoints should be re-encoded as UTF-8 (2-byte sequences)
+    QCOMPARE(received, QByteArray("data \xC2\x90\xC2\x9B\xC2\x9D\xC2\x98"));
+}
+
+void Vt102EmulationTest::testTmuxControlModeST()
+{
+    // Verify that ESC \ (ST) correctly terminates tmux control mode
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    QSignalSpy endedSpy(&em, &Vt102Emulation::tmuxControlModeEnded);
+
+    const uint ESC = 0x1B;
+
+    // Enter tmux control mode
+    em.receiveChars({ESC, 'P', '1', '0', '0', '0', 'p'});
+
+    // Send ESC \ (String Terminator) to exit DCS passthrough
+    em.receiveChars({ESC, '\\'});
+
+    QCOMPARE(endedSpy.count(), 1);
+}
+
+void Vt102EmulationTest::testTmuxControlModeUtf8ChunkBoundary()
+{
+    // Test that UTF-8 sequences split across receiveData() chunk boundaries
+    // are handled correctly in tmux control mode.
+    // The line "→──\n" is UTF-8: \xE2\x86\x92 \xE2\x94\x80 \xE2\x94\x80 \n
+    // We split at every possible byte boundary within this data.
+    const QByteArray dcs("\033P1000p");
+    const QByteArray fullLine("\xE2\x86\x92\xE2\x94\x80\xE2\x94\x80\n");
+    const QByteArray expected("\xE2\x86\x92\xE2\x94\x80\xE2\x94\x80");
+
+    // Test splitting at every byte position
+    for (int split = 1; split < fullLine.size(); split++) {
+        TestEmulation em;
+        em.reset();
+        em.setCodec(TestEmulation::Utf8Codec);
+
+        QSignalSpy lineSpy(&em, &Vt102Emulation::tmuxControlModeLineReceived);
+
+        em.receiveData(dcs.constData(), dcs.size());
+
+        // Send in two chunks split at position 'split'
+        QByteArray chunk1 = fullLine.left(split);
+        QByteArray chunk2 = fullLine.mid(split);
+        em.receiveData(chunk1.constData(), chunk1.size());
+        em.receiveData(chunk2.constData(), chunk2.size());
+
+        QCOMPARE(lineSpy.count(), 1);
+        QByteArray received = lineSpy.at(0).at(0).toByteArray();
+        if (received != expected) {
+            qWarning() << "Failed at split position" << split
+                       << "chunk1:" << chunk1.toHex(' ')
+                       << "chunk2:" << chunk2.toHex(' ');
+        }
+        QCOMPARE(received, expected);
+    }
+}
+
+void Vt102EmulationTest::testTmuxControlModeUtf8OutputBoundary()
+{
+    // Simulate tmux splitting a UTF-8 character across two %output lines.
+    // The gateway session's receiveData decodes the DCS passthrough.
+    // TmuxGateway decodes octal escapes and calls injectData on the
+    // virtual session. If tmux splits "→─" (UTF-8: E2 86 92 E2 94 80)
+    // as two %output lines where the first has "\342\206" and the second
+    // has "\222\342\224\200", the decoded bytes from each line are passed
+    // to separate injectData calls, splitting the UTF-8 sequence.
+    //
+    // This tests the virtual session's receiveData handling of incomplete
+    // UTF-8 sequences across calls.
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    // Simulate two injectData calls with a UTF-8 split
+    // → = U+2192 = E2 86 92
+    // ─ = U+2500 = E2 94 80
+    // Split after the first byte of → : chunk1 = [E2], chunk2 = [86 92 E2 94 80]
+    const char chunk1[] = "\xE2";
+    const char chunk2[] = "\x86\x92\xE2\x94\x80";
+
+    em.receiveData(chunk1, sizeof(chunk1) - 1);
+    em.receiveData(chunk2, sizeof(chunk2) - 1);
+
+    // Read what was rendered on screen
+    QString printed = em._currentScreen->text(0, em._currentScreen->getColumns(), Screen::PlainText);
+
+    // Should contain → and ─
+    QVERIFY2(printed.contains(QChar(0x2192)), qPrintable(QStringLiteral("Missing → (U+2192), got: ") + printed.left(20)));
+    QVERIFY2(printed.contains(QChar(0x2500)), qPrintable(QStringLiteral("Missing ─ (U+2500), got: ") + printed.left(20)));
+}
+
+void Vt102EmulationTest::testTmuxControlModeRawBytePassthrough()
+{
+    // Test that raw UTF-8 bytes in tmux control mode are passed through
+    // without lossy Unicode round-tripping. Previously, receiveData() would
+    // decode raw bytes via QStringDecoder into Unicode, and put() would
+    // re-encode back to UTF-8. When a PTY read split a multi-byte UTF-8
+    // sequence at a chunk boundary, QStringDecoder produced U+FFFD for the
+    // incomplete trailing bytes, corrupting the tmux protocol data.
+    //
+    // The fix: receiveRawData() intercepts raw bytes in tmux control mode
+    // and passes them directly to the line buffer without Unicode round-trip.
+
+    // Simulate: DCS entry, then two chunks where the split falls inside
+    // a 3-byte UTF-8 character (╭ = U+256D = E2 95 AD)
+    const QByteArray dcs("\033P1000p");
+
+    // Full line: "╭──\n" = E2 95 AD E2 94 80 E2 94 80 0A
+    // Split after first byte of ╭: chunk1 = [E2], chunk2 = [95 AD E2 94 80 E2 94 80 0A]
+    const QByteArray chunk1("\xE2");
+    const QByteArray chunk2("\x95\xAD\xE2\x94\x80\xE2\x94\x80\n");
+    const QByteArray expected("\xE2\x95\xAD\xE2\x94\x80\xE2\x94\x80");
+
+    TestEmulation em;
+    em.reset();
+    em.setCodec(TestEmulation::Utf8Codec);
+
+    QSignalSpy lineSpy(&em, &Vt102Emulation::tmuxControlModeLineReceived);
+
+    em.receiveData(dcs.constData(), dcs.size());
+    em.receiveData(chunk1.constData(), chunk1.size());
+    em.receiveData(chunk2.constData(), chunk2.size());
+
+    QCOMPARE(lineSpy.count(), 1);
+    QByteArray received = lineSpy.at(0).at(0).toByteArray();
+
+    // Verify exact byte match — no U+FFFD (EF BF BD) substitution
+    QVERIFY2(!received.contains("\xEF\xBF\xBD"),
+             qPrintable(QStringLiteral("U+FFFD found in output! hex: ") + QString::fromLatin1(received.toHex(' '))));
+    QCOMPARE(received, expected);
+}
+
 QTEST_GUILESS_MAIN(Vt102EmulationTest)
 
 #include "moc_Vt102EmulationTest.cpp"

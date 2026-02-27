@@ -34,6 +34,16 @@ private Q_SLOTS:
 
     void testBufferedUpdates();
 
+    void testTmuxControlModePassthrough();
+    void testTmuxControlModeUtf8();
+    void testTmuxControlModeUtf8ViaReceiveData();
+    void testTmuxControlModeEscInData();
+    void testTmuxControlModeC1InData();
+    void testTmuxControlModeST();
+    void testTmuxControlModeUtf8ChunkBoundary();
+    void testTmuxControlModeUtf8OutputBoundary();
+    void testTmuxControlModeRawBytePassthrough();
+
 private:
     static void sendAndCompare(TestEmulation *em, const char *input, size_t inputLen, const QString &expectedPrint, const QByteArray &expectedSent);
 };

@@ -266,12 +266,12 @@ void ScreenWindow::scrollBy(RelativeScrollMode mode, int amount, bool fullPage)
 
 bool ScreenWindow::atEndOfOutput() const
 {
-    return currentLine() == (lineCount() - windowLines());
+    return currentLine() == std::max(0, lineCount() - windowLines());
 }
 
 void ScreenWindow::scrollTo(int line)
 {
-    int maxCurrentLineNumber = lineCount() - windowLines();
+    int maxCurrentLineNumber = std::max(0, lineCount() - windowLines());
     line = qBound(0, line, maxCurrentLineNumber);
 
     const int delta = line - _currentLine;

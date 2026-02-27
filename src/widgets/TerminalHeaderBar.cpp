@@ -8,6 +8,7 @@
 
 #include "KonsoleSettings.h"
 #include "ViewProperties.h"
+#include "session/Session.h"
 #include "session/SessionController.h"
 #include "terminalDisplay/TerminalDisplay.h"
 #include "widgets/ViewSplitter.h"
@@ -276,6 +277,14 @@ QSplitter *TerminalHeaderBar::getTopLevelSplitter()
 
 void TerminalHeaderBar::applyVisibilitySettings()
 {
+    // Force hidden header for tmux panes — tmux doesn't account for header height
+    auto *display = qobject_cast<TerminalDisplay *>(parentWidget());
+    if (display && display->sessionController() && display->sessionController()->session()
+        && display->sessionController()->session()->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
+        setVisible(false);
+        return;
+    }
+
     auto *settings = KonsoleSettings::self();
     auto toVisibility = settings->splitViewVisibility();
     const bool singleTerminalView = (getTopLevelSplitter()->findChildren<TerminalDisplay *>().count() == 1);

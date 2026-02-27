@@ -244,6 +244,11 @@ void Emulation::receiveChars(const QVector<uint> &chars)
     }
 }
 
+bool Emulation::receiveRawData(const char * /*text*/, int /*length*/)
+{
+    return false;
+}
+
 void Emulation::sendKeyEvent(QKeyEvent *ev)
 {
     if (!ev->text().isEmpty()) {
@@ -259,6 +264,13 @@ void Emulation::receiveData(const char *text, int length)
     Q_ASSERT(_decoder.isValid());
 
     bufferedUpdate();
+
+    // Allow subclass to intercept raw bytes (e.g. for tmux control mode
+    // DCS passthrough where UTF-8 round-tripping through QStringDecoder
+    // is lossy at chunk boundaries)
+    if (receiveRawData(text, length)) {
+        return;
+    }
 
     // send characters to terminal emulator
     const QString readString = _decoder.decode(QByteArrayView(text, length));
