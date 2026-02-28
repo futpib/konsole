@@ -19,7 +19,7 @@
 
 #include <QLoggingCategory>
 
-Q_LOGGING_CATEGORY(KonsoleTmuxLayout, "konsole.tmux.layout", QtDebugMsg)
+Q_LOGGING_CATEGORY(KonsoleTmuxLayout, "konsole.tmux.layout", QtWarningMsg)
 
 namespace Konsole
 {

@@ -12,7 +12,7 @@
 
 #include <QLoggingCategory>
 
-Q_LOGGING_CATEGORY(KonsoleTmuxGateway, "konsole.tmux.gateway", QtDebugMsg)
+Q_LOGGING_CATEGORY(KonsoleTmuxGateway, "konsole.tmux.gateway", QtWarningMsg)
 
 namespace Konsole
 {

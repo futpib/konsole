@@ -22,7 +22,7 @@
 
 #include <QLoggingCategory>
 
-Q_LOGGING_CATEGORY(KonsoleTmuxController, "konsole.tmux.controller", QtDebugMsg)
+Q_LOGGING_CATEGORY(KonsoleTmuxController, "konsole.tmux.controller", QtWarningMsg)
 
 namespace Konsole
 {
