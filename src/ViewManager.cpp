@@ -850,7 +850,7 @@ void ViewManager::splitView(Qt::Orientation orientation, bool fromNextTab)
             if (activeSession && activeSession->paneSyncPolicy() == Session::PaneSyncPolicy::SyncWithSiblings) {
                 auto *ctrl = TmuxControllerRegistry::instance()->controllerForSession(activeSession);
                 if (ctrl) {
-                    ctrl->requestSplitPane(ctrl->paneIdForSession(activeSession), orientation);
+                    ctrl->requestSplitPane(ctrl->paneIdForSession(activeSession), orientation, activeSession->currentWorkingDirectory());
                     return;
                 }
             }

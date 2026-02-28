@@ -43,6 +43,8 @@ private Q_SLOTS:
     void testTmuxZoomFromTmux();
     void testTmuxZoomSurvivesLayoutChanges();
     void testBreakPane();
+    void testSplitPaneInheritsWorkingDirectory();
+    void testNewWindowInheritsWorkingDirectory();
     void testTmuxAttachNoSessions();
 
 private:

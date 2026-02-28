@@ -103,17 +103,24 @@ TmuxGateway *TmuxController::gateway() const
     return _gateway;
 }
 
-void TmuxController::requestNewWindow()
+void TmuxController::requestNewWindow(const QString &directory)
 {
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("new-window")));
+    TmuxCommand cmd(QStringLiteral("new-window"));
+    if (!directory.isEmpty()) {
+        cmd.flag(QStringLiteral("-c")).singleQuotedArg(directory);
+    }
+    _gateway->sendCommand(cmd);
 }
 
-void TmuxController::requestSplitPane(int paneId, Qt::Orientation orientation)
+void TmuxController::requestSplitPane(int paneId, Qt::Orientation orientation, const QString &directory)
 {
     QString direction = (orientation == Qt::Horizontal) ? QStringLiteral("-h") : QStringLiteral("-v");
-    _gateway->sendCommand(TmuxCommand(QStringLiteral("split-window"))
-                              .flag(direction)
-                              .paneTarget(paneId));
+    TmuxCommand cmd(QStringLiteral("split-window"));
+    cmd.flag(direction).paneTarget(paneId);
+    if (!directory.isEmpty()) {
+        cmd.flag(QStringLiteral("-c")).singleQuotedArg(directory);
+    }
+    _gateway->sendCommand(cmd);
 }
 
 void TmuxController::requestClosePane(int paneId)

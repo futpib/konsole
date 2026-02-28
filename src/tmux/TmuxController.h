@@ -40,8 +40,8 @@ public:
     void cleanup();
     void sendClientSize();
 
-    void requestNewWindow();
-    void requestSplitPane(int paneId, Qt::Orientation orientation);
+    void requestNewWindow(const QString &directory = QString());
+    void requestSplitPane(int paneId, Qt::Orientation orientation, const QString &directory = QString());
     void requestClosePane(int paneId);
     void requestCloseWindow(int windowId);
     void requestSwapPane(int srcPaneId, int dstPaneId);

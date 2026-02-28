@@ -680,7 +680,7 @@ void MainWindow::newTab()
                 KStandardGuiItem::cancel(),
                 QStringLiteral("NewTabFromTmuxOpensTmux"));
             if (result == KMessageBox::PrimaryAction) {
-                controller->requestNewWindow();
+                controller->requestNewWindow(_pluggedController->session()->currentWorkingDirectory());
                 return;
             } else if (result == KMessageBox::Cancel) {
                 return;

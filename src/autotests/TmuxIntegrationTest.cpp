@@ -2589,6 +2589,165 @@ void TmuxIntegrationTest::testBreakPane()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testSplitPaneInheritsWorkingDirectory()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: bash --norc --noprofile                                                   │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    // cd to /tmp so we have a known directory
+    QProcess sendCd;
+    sendCd.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
+                            QStringLiteral("cd /tmp"), QStringLiteral("Enter")});
+    QVERIFY(sendCd.waitForFinished(5000));
+    QCOMPARE(sendCd.exitCode(), 0);
+    QTest::qWait(500);
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    // Find the pane session and its controller
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(paneSession);
+    QVERIFY(controller);
+    int paneId = controller->paneIdForSession(paneSession);
+    QVERIFY(paneId >= 0);
+
+    // Wait for the working directory to propagate to the VirtualSession
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QString dir = paneSession->currentWorkingDirectory();
+        return dir.contains(QStringLiteral("tmp"));
+    }(), 10000);
+
+    // Request a horizontal split, passing the working directory
+    controller->requestSplitPane(paneId, Qt::Horizontal, QStringLiteral("/tmp"));
+
+    // Wait for the split to appear: a ViewSplitter with 2 TerminalDisplay children
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        for (int i = 0; i < attach.container->count(); ++i) {
+            auto *splitter = attach.container->viewSplitterAt(i);
+            if (splitter) {
+                auto terminals = splitter->findChildren<TerminalDisplay *>();
+                if (terminals.size() == 2) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }(), 10000);
+
+    // Verify the new pane started in /tmp by querying tmux
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_current_path}")});
+        check.waitForFinished(3000);
+        QStringList paths = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        if (paths.size() != 2) return false;
+        // Both the original pane and the new pane should be in /tmp
+        return paths[0].contains(QStringLiteral("tmp")) && paths[1].contains(QStringLiteral("tmp"));
+    }(), 10000);
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
+void TmuxIntegrationTest::testNewWindowInheritsWorkingDirectory()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: bash --norc --noprofile                                                   │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    // cd to /tmp so we have a known directory
+    QProcess sendCd;
+    sendCd.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
+                            QStringLiteral("cd /tmp"), QStringLiteral("Enter")});
+    QVERIFY(sendCd.waitForFinished(5000));
+    QCOMPARE(sendCd.exitCode(), 0);
+    QTest::qWait(500);
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    auto *controller = TmuxControllerRegistry::instance()->controllerForSession(
+        [&]() -> Session * {
+            const auto sessions = attach.mw->viewManager()->sessions();
+            for (Session *s : sessions) {
+                if (s != attach.gatewaySession) {
+                    return s;
+                }
+            }
+            return nullptr;
+        }());
+    QVERIFY(controller);
+
+    int initialTabCount = attach.container->count();
+
+    // Request a new tmux window with /tmp as working directory
+    controller->requestNewWindow(QStringLiteral("/tmp"));
+
+    // Wait for the new tab to appear
+    QTRY_VERIFY_WITH_TIMEOUT(attach.container->count() == initialTabCount + 1, 10000);
+
+    // Verify the new window's pane started in /tmp by querying tmux
+    QTRY_VERIFY_WITH_TIMEOUT([&]() {
+        QProcess check;
+        check.start(tmuxPath, {QStringLiteral("list-panes"), QStringLiteral("-a"), QStringLiteral("-t"), ctx.sessionName,
+                                QStringLiteral("-F"), QStringLiteral("#{pane_current_path}")});
+        check.waitForFinished(3000);
+        QStringList paths = QString::fromUtf8(check.readAllStandardOutput()).trimmed().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        if (paths.size() != 2) return false;
+        // The new window's pane should be in /tmp
+        return paths[1].contains(QStringLiteral("tmp"));
+    }(), 10000);
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 void TmuxIntegrationTest::testTmuxAttachNoSessions()
 {
     const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
