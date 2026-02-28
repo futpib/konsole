@@ -2589,6 +2589,44 @@ void TmuxIntegrationTest::testBreakPane()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testTmuxAttachNoSessions()
+{
+    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
+    if (tmuxPath.isEmpty()) {
+        QSKIP("tmux command not found.");
+    }
+
+    // Make sure no tmux sessions exist so "attach" will fail immediately
+    QProcess killServer;
+    killServer.start(tmuxPath, {QStringLiteral("kill-server")});
+    killServer.waitForFinished(5000);
+
+    // Simulate: konsole -e 'tmux -CC attach'
+    // With no sessions, tmux will emit %exit and close immediately.
+    auto *mw = new MainWindow();
+    QPointer<MainWindow> mwGuard(mw);
+    ViewManager *vm = mw->viewManager();
+
+    Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
+    profile->setProperty(Profile::Command, tmuxPath);
+    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach")});
+
+    Session *session = vm->createSession(profile, QString());
+    auto *view = vm->createView(session);
+    vm->activeContainer()->addView(view);
+    session->run();
+
+    QPointer<TabbedViewContainer> container = vm->activeContainer();
+    QVERIFY(container);
+
+    // tmux exits immediately — the gateway session should finish and
+    // the window should clean up without crashing.
+    // No virtual pane tabs should ever be created.
+    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard || !container || container->count() <= 1, 10000);
+
+    delete mwGuard.data();
+}
+
 QTEST_MAIN(TmuxIntegrationTest)
 
 #include "moc_TmuxIntegrationTest.cpp"
