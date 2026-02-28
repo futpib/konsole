@@ -241,6 +241,21 @@ public Q_SLOTS:
     virtual void sendString(const QByteArray &string) = 0;
 
     /**
+     * When enabled, terminal responses (DA, OSC color replies, etc.)
+     * generated while processing incoming data are suppressed.
+     *
+     * This is used for tmux virtual sessions where tmux owns the pane's
+     * PTY and handles terminal queries itself. Without this, Konsole's
+     * emulation would process the queries from %output and send responses
+     * back as keystrokes via send-keys, causing them to appear as visible
+     * text in the pane.
+     */
+    void setSuppressTerminalResponsesDuringReceive(bool suppress);
+
+    bool isReceivingData() const;
+    bool suppressTerminalResponsesDuringReceive() const;
+
+    /**
      * Processes an incoming stream of characters.  receiveData() decodes the incoming
      * character buffer using the current codec(), and then calls receiveChar() for
      * each unicode character in the resulting buffer.
@@ -556,6 +571,8 @@ private:
     bool _imageSizeInitialized = false;
     bool _peekingPrimary = false;
     int _activeScreenIndex = 0;
+    bool _receivingData = false;
+    bool _suppressTerminalResponsesDuringReceive = false;
 };
 }
 

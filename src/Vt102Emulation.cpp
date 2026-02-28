@@ -2705,6 +2705,9 @@ void Vt102Emulation::clearScreenAndSetColumns(int columnCount)
 
 void Vt102Emulation::sendString(const QByteArray &s)
 {
+    if (suppressTerminalResponsesDuringReceive() && isReceivingData()) {
+        return;
+    }
     Q_EMIT sendData(s);
 }
 

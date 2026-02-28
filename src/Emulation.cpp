@@ -259,6 +259,21 @@ void Emulation::sendKeyEvent(QKeyEvent *ev)
     }
 }
 
+void Emulation::setSuppressTerminalResponsesDuringReceive(bool suppress)
+{
+    _suppressTerminalResponsesDuringReceive = suppress;
+}
+
+bool Emulation::isReceivingData() const
+{
+    return _receivingData;
+}
+
+bool Emulation::suppressTerminalResponsesDuringReceive() const
+{
+    return _suppressTerminalResponsesDuringReceive;
+}
+
 void Emulation::receiveData(const char *text, int length)
 {
     Q_ASSERT(_decoder.isValid());
@@ -275,7 +290,9 @@ void Emulation::receiveData(const char *text, int length)
     // send characters to terminal emulator
     const QString readString = _decoder.decode(QByteArrayView(text, length));
     const QVector<uint> chars = readString.toUcs4();
+    _receivingData = true;
     receiveChars(chars);
+    _receivingData = false;
 
     if (KonsoleSettings::listenForZModemTerminalCodes() == false) {
         return;

@@ -2815,7 +2815,6 @@ void TmuxIntegrationTest::testOscColorQueryNotLeakedAsKeystrokes()
             break;
         }
     }
-    QEXPECT_FAIL("", "OSC color query responses are currently leaked back as keystrokes to the tmux pane", Continue);
     QVERIFY2(!leaked, "OSC color query response was leaked back as keystrokes to tmux pane");
 
     // Cleanup
