@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    container:
+      image: invent-registry.kde.org/neon/docker-images/plasma:unstable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install extra dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends tmux
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+  clang-format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    container:
+      image: invent-registry.kde.org/neon/docker-images/plasma:unstable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (generates .clang-format via KDEClangFormat)
+        run: cmake -B build -G Ninja
+
+      - name: Run clang-format
+        run: find src -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
