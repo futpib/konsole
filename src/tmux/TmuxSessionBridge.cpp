@@ -13,8 +13,6 @@
 #include "Vt102Emulation.h"
 #include "session/Session.h"
 
-#include <QTimer>
-
 namespace Konsole
 {
 
@@ -33,14 +31,14 @@ TmuxSessionBridge::TmuxSessionBridge(Session *gatewaySession, ViewManager *viewM
 
     connect(gatewaySession, &Session::finished, this, &TmuxSessionBridge::teardown);
 
-    TmuxControllerRegistry::instance()->registerController(_controller);
+    // Wait for the gateway to receive the first %begin block from tmux
+    // before initializing.  This ensures the tmux server is alive.  If tmux
+    // exits immediately (e.g. "tmux -CC attach" with no session), the %exit
+    // notification arrives instead, ready() is never emitted, and we never
+    // send commands that would leak to the underlying shell.
+    connect(_gateway, &TmuxGateway::ready, _controller, &TmuxController::initialize);
 
-    // Defer initialize() so that all pending tmux output (including a possible
-    // %exit) is processed before we send commands. Without this, if tmux exits
-    // immediately (e.g. "tmux -CC attach" with no session), the list-windows
-    // command would be written to the PTY after tmux has exited and end up
-    // being executed by the underlying shell.
-    QTimer::singleShot(0, _controller, &TmuxController::initialize);
+    TmuxControllerRegistry::instance()->registerController(_controller);
 }
 
 TmuxSessionBridge::~TmuxSessionBridge()

@@ -55,6 +55,7 @@ Q_SIGNALS:
     void clientSessionChanged(const QString &clientName, int sessionId, const QString &sessionName);
     void clientDetached(const QString &clientName);
     void exitReceived(const QString &reason);
+    void ready();
 
 private:
     static QByteArray decodeOctalEscapes(const QByteArray &encoded);
@@ -67,6 +68,7 @@ private:
 
     Session *_gatewaySession;
     bool _exited = false;
+    bool _ready = false;
 
     struct PendingCommand {
         QString command;

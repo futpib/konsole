@@ -50,6 +50,13 @@ void TmuxGateway::processLine(const QByteArray &line)
     }
 
     if (line.startsWith("%begin ")) {
+        // The first %begin proves the tmux server is alive and
+        // responding.  Emit ready() so the controller can initialize.
+        if (!_ready) {
+            _ready = true;
+            Q_EMIT ready();
+        }
+
         // Format: %begin <command_id> <command_number> [<flags>]
         QList<QByteArray> parts = line.mid(7).split(' ');
         int commandId = -1;
