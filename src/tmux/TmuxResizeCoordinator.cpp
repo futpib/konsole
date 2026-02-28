@@ -16,7 +16,6 @@
 #include "ViewManager.h"
 #include "terminalDisplay/TerminalDisplay.h"
 #include "terminalDisplay/TerminalFonts.h"
-#include "widgets/TabPageWidget.h"
 #include "widgets/ViewContainer.h"
 #include "widgets/ViewSplitter.h"
 
@@ -115,21 +114,6 @@ TmuxResizeCoordinator::TmuxResizeCoordinator(TmuxGateway *gateway, TmuxControlle
     connect(&_resizeTimer, &QTimer::timeout, this, &TmuxResizeCoordinator::sendClientSize);
 
     connect(qApp, &QApplication::focusChanged, this, [this]() {
-        TabbedViewContainer *container = _viewManager->activeContainer();
-        bool isActive = container && container->window() && container->window()->isActiveWindow();
-        qCDebug(KonsoleTmuxResize) << "focusChanged: isActiveWindow=" << isActive;
-        // When Konsole gains focus, immediately clear layout constraints
-        // so the splitter fills the tab while we wait for tmux to respond
-        // with a full-size layout.
-        if (isActive) {
-            for (int i = 0; i < container->count(); ++i) {
-                auto *page = container->tabPageAt(i);
-                if (page && page->isConstrained()) {
-                    qCDebug(KonsoleTmuxResize) << "focusChanged: clearing constraint on tab" << i;
-                    page->clearConstrainedSize();
-                }
-            }
-        }
         _resizeTimer.start();
     });
     connect(viewManager, &ViewManager::activeViewChanged, this, [this]() {
@@ -333,31 +317,12 @@ void TmuxResizeCoordinator::sendClientSize()
         return result;
     };
 
-    int activeTabIndex = container->currentIndex();
-    bool windowFocused = container->window() && container->window()->isActiveWindow();
-
-    qCDebug(KonsoleTmuxResize) << "sendClientSize: activeTabIndex=" << activeTabIndex
-                               << "windowFocused=" << windowFocused
-                               << "otherClientsAttached=" << _otherClientsAttached;
+    qCDebug(KonsoleTmuxResize) << "sendClientSize: activeTabIndex=" << container->currentIndex();
 
     const auto &windowToTab = _controller->windowToTabIndex();
     for (auto it = windowToTab.constBegin(); it != windowToTab.constEnd(); ++it) {
         int windowId = it.key();
         int tabIndex = it.value();
-
-        if (_otherClientsAttached && (!windowFocused || tabIndex != activeTabIndex)) {
-            // Clear per-window size for non-active tabs and when unfocused,
-            // so other clients can use their own size
-            if (_lastClientSizes.contains(windowId)) {
-                qCDebug(KonsoleTmuxResize) << "sendClientSize: clearing size for windowId=" << windowId
-                                           << "(otherClients && (!focused || not active tab))";
-                _lastClientSizes.remove(windowId);
-                _gateway->sendCommand(TmuxCommand(QStringLiteral("refresh-client"))
-                                          .flag(QStringLiteral("-C"))
-                                          .arg(QLatin1Char('@') + QString::number(windowId) + QLatin1Char(':')));
-            }
-            continue;
-        }
 
         auto *windowSplitter = container->viewSplitterAt(tabIndex);
         if (!windowSplitter) {
@@ -387,14 +352,6 @@ void TmuxResizeCoordinator::sendClientSize()
         } else {
             qCDebug(KonsoleTmuxResize) << "sendClientSize: windowId=" << windowId << "size unchanged at" << lastSize << "→ skipping";
         }
-    }
-}
-
-void TmuxResizeCoordinator::setOtherClientsAttached(bool attached)
-{
-    if (_otherClientsAttached != attached) {
-        _otherClientsAttached = attached;
-        _resizeTimer.start();
     }
 }
 

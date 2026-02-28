@@ -88,7 +88,6 @@ private:
     void setWindowTabTitle(int windowId, const QString &name);
     void refreshPaneTitles();
     void handleListWindowsResponse(bool success, const QString &response);
-    void refreshClientCount();
 
     TmuxGateway *_gateway;
     Session *_gatewaySession;

@@ -34,8 +34,6 @@ public:
     void stop();
     void setWindowSize(int windowId, int cols, int lines);
 
-    void setOtherClientsAttached(bool attached);
-
 private:
     TmuxGateway *_gateway;
     TmuxController *_controller;
@@ -46,7 +44,6 @@ private:
     QTimer _resizeTimer;
     QMap<int, QSize> _lastClientSizes;
     QMap<int, QSize> _tmuxWindowSizes;
-    bool _otherClientsAttached = false;
 };
 
 } // namespace Konsole
