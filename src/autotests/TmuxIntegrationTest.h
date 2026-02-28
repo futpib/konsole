@@ -45,6 +45,7 @@ private Q_SLOTS:
     void testBreakPane();
     void testSplitPaneInheritsWorkingDirectory();
     void testNewWindowInheritsWorkingDirectory();
+    void testOscColorQueryNotLeakedAsKeystrokes();
     void testTmuxAttachNoSessions();
 
 private:

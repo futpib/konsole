@@ -2748,6 +2748,82 @@ void TmuxIntegrationTest::testNewWindowInheritsWorkingDirectory()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testOscColorQueryNotLeakedAsKeystrokes()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: bash --norc --noprofile                                                   │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
+    )")), tmuxPath, ctx);
+    auto cleanup = qScopeGuard([&] { TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName); });
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    // Find the pane session (not the gateway)
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    // Spy on data sent back from the emulation (this becomes send-keys in tmux mode)
+    QSignalSpy sendSpy(paneSession->emulation(), &Emulation::sendData);
+
+    // Send an OSC 10 foreground color query into the pane from the tmux side.
+    // This simulates what happens when a program like bat sends "\033]10;?\007"
+    // — tmux forwards the pane output as %output to Konsole's emulation.
+    QProcess sendQuery;
+    sendQuery.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
+                               QStringLiteral("-l"), QStringLiteral("printf '\\033]10;?\\007'")});
+    QVERIFY(sendQuery.waitForFinished(5000));
+    QCOMPARE(sendQuery.exitCode(), 0);
+    // Execute the printf command
+    QProcess sendEnter;
+    sendEnter.start(tmuxPath, {QStringLiteral("send-keys"), QStringLiteral("-t"), ctx.sessionName,
+                               QStringLiteral("Enter")});
+    QVERIFY(sendEnter.waitForFinished(5000));
+    QCOMPARE(sendEnter.exitCode(), 0);
+
+    // Wait for the output to propagate through tmux %output → Konsole emulation
+    QTest::qWait(3000);
+
+    // Check if any response containing "rgb:" was sent back via sendData.
+    // This is the bug: the OSC color response should NOT be sent back as
+    // keystrokes to the tmux pane, because it will appear as visible text.
+    bool leaked = false;
+    for (const auto &call : sendSpy) {
+        QByteArray data = call.at(0).toByteArray();
+        if (data.contains("rgb:")) {
+            leaked = true;
+            break;
+        }
+    }
+    QEXPECT_FAIL("", "OSC color query responses are currently leaked back as keystrokes to the tmux pane", Continue);
+    QVERIFY2(!leaked, "OSC color query response was leaked back as keystrokes to tmux pane");
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 void TmuxIntegrationTest::testTmuxAttachNoSessions()
 {
     const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
