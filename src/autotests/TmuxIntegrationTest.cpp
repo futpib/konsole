@@ -2591,38 +2591,66 @@ void TmuxIntegrationTest::testBreakPane()
 
 void TmuxIntegrationTest::testTmuxAttachNoSessions()
 {
-    const QString tmuxPath = QStandardPaths::findExecutable(QStringLiteral("tmux"));
-    if (tmuxPath.isEmpty()) {
-        QSKIP("tmux command not found.");
+    const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
+    if (bashPath.isEmpty()) {
+        QSKIP("bash command not found.");
     }
 
-    // Make sure no tmux sessions exist so "attach" will fail immediately
-    QProcess killServer;
-    killServer.start(tmuxPath, {QStringLiteral("kill-server")});
-    killServer.waitForFinished(5000);
-
-    // Simulate: konsole -e 'tmux -CC attach'
-    // With no sessions, tmux will emit %exit and close immediately.
+    // Start a bash shell session — this mimics the real scenario where
+    // the user types "tmux -CC attach" at a shell prompt.
     auto *mw = new MainWindow();
     QPointer<MainWindow> mwGuard(mw);
     ViewManager *vm = mw->viewManager();
 
     Profile::Ptr profile(new Profile(ProfileManager::instance()->defaultProfile()));
-    profile->setProperty(Profile::Command, tmuxPath);
-    profile->setProperty(Profile::Arguments, QStringList{tmuxPath, QStringLiteral("-CC"), QStringLiteral("attach")});
+    profile->setProperty(Profile::Command, bashPath);
+    profile->setProperty(Profile::Arguments, QStringList{bashPath, QStringLiteral("--norc"), QStringLiteral("--noprofile")});
 
     Session *session = vm->createSession(profile, QString());
+    QPointer<Session> sessionGuard(session);
     auto *view = vm->createView(session);
     vm->activeContainer()->addView(view);
     session->run();
 
-    QPointer<TabbedViewContainer> container = vm->activeContainer();
-    QVERIFY(container);
+    // Wait for the shell prompt to appear
+    QTest::qWait(500);
 
-    // tmux exits immediately — the gateway session should finish and
-    // the window should clean up without crashing.
-    // No virtual pane tabs should ever be created.
-    QTRY_VERIFY_WITH_TIMEOUT(!mwGuard || !container || container->count() <= 1, 10000);
+    // Spy on data sent back through the emulation (i.e. written to the PTY).
+    // If list-windows leaks, it will appear here.
+    QSignalSpy sendSpy(session->emulation(), &Emulation::sendData);
+
+    // Simulate tmux entering control mode and immediately exiting, with
+    // the DCS start and %exit arriving in separate PTY reads.  This
+    // reproduces the race where QTimer::singleShot(0) (used to defer
+    // initialize()) fires between the two reads, causing list-windows
+    // to be sent to the underlying shell.
+    //
+    // Feed the DCS start directly into the emulation:
+    const QByteArray dcsStart = QByteArrayLiteral("\033P1000p");
+    session->emulation()->receiveData(dcsStart.constData(), dcsStart.size());
+
+    // Let the event loop run so the deferred initialize() fires (if the
+    // guard is insufficient, list-windows will be written to the PTY).
+    QTest::qWait(100);
+
+    // Now deliver the %exit and DCS terminator:
+    const QByteArray exitAndST = QByteArrayLiteral("%exit\r\n\033\\");
+    session->emulation()->receiveData(exitAndST.constData(), exitAndST.size());
+
+    // Let everything settle.
+    QTest::qWait(100);
+
+    // Check that no "list-windows" command was sent through the emulation
+    // to the PTY (which would mean it leaked to the underlying shell).
+    bool leaked = false;
+    for (const auto &call : sendSpy) {
+        QByteArray data = call.at(0).toByteArray();
+        if (data.contains("list-windows")) {
+            leaked = true;
+            break;
+        }
+    }
+    QVERIFY2(!leaked, "list-windows command leaked to shell after tmux exit");
 
     delete mwGuard.data();
 }
