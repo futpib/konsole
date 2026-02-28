@@ -46,6 +46,7 @@ private Q_SLOTS:
     void testSplitPaneInheritsWorkingDirectory();
     void testNewWindowInheritsWorkingDirectory();
     void testOscColorQueryNotLeakedAsKeystrokes();
+    void testCyrillicInputPreservesUtf8();
     void testTmuxAttachNoSessions();
 
 private:

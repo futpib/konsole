@@ -302,35 +302,78 @@ void TmuxGateway::sendCommand(const TmuxCommand &command, CommandCallback callba
 
 void TmuxGateway::sendKeys(int paneId, const QByteArray &data)
 {
-    // Split into runs of literal-safe characters vs. hex-encoded characters
-    // Literal-safe: alphanumeric + selected special chars (following iTerm2)
-    auto isLiteral = [](char c) -> bool {
+    // Split into runs of literal-safe characters vs. hex-encoded characters.
+    // Literal-safe: ASCII alphanumeric, selected special chars (following iTerm2),
+    // and UTF-8 multi-byte sequences (e.g. Cyrillic, CJK, emoji).
+    auto isAsciiLiteral = [](char c) -> bool {
         return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '+' || c == '/' || c == ')' || c == ':' || c == ','
             || c == '_';
     };
 
+    auto isUtf8LeadByte = [](unsigned char c) -> bool {
+        return c >= 0xC0 && c <= 0xF4;
+    };
+
+    auto isUtf8ContinuationByte = [](unsigned char c) -> bool {
+        return (c & 0xC0) == 0x80;
+    };
+
+    // Return the expected byte count for a UTF-8 lead byte, or 0 if invalid.
+    auto utf8SequenceLength = [](unsigned char c) -> int {
+        if (c < 0xC0)
+            return 0;
+        if (c < 0xE0)
+            return 2;
+        if (c < 0xF0)
+            return 3;
+        if (c <= 0xF4)
+            return 4;
+        return 0;
+    };
+
     int i = 0;
     while (i < data.size()) {
-        if (isLiteral(data[i])) {
-            // Collect run of literal characters (max 1000)
+        unsigned char byte = static_cast<unsigned char>(data[i]);
+        if (isAsciiLiteral(data[i]) || isUtf8LeadByte(byte)) {
+            // Collect run of literal ASCII characters and UTF-8 sequences (max 1000 bytes)
             QByteArray literal;
-            while (i < data.size() && isLiteral(data[i]) && literal.size() < 1000) {
-                literal.append(data[i]);
-                i++;
+            while (i < data.size() && literal.size() < 1000) {
+                unsigned char b = static_cast<unsigned char>(data[i]);
+                if (isAsciiLiteral(data[i])) {
+                    literal.append(data[i]);
+                    i++;
+                } else if (isUtf8LeadByte(b)) {
+                    int seqLen = utf8SequenceLength(b);
+                    // Verify we have enough bytes and they are valid continuation bytes
+                    if (i + seqLen > data.size()) {
+                        break;
+                    }
+                    bool valid = true;
+                    for (int j = 1; j < seqLen; j++) {
+                        if (!isUtf8ContinuationByte(static_cast<unsigned char>(data[i + j]))) {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if (!valid) {
+                        break;
+                    }
+                    literal.append(data.mid(i, seqLen));
+                    i += seqLen;
+                } else {
+                    break;
+                }
             }
-            sendCommand(TmuxCommand(QStringLiteral("send-keys"))
-                             .flag(QStringLiteral("-l"))
-                             .paneTarget(paneId)
-                             .arg(QString::fromLatin1(literal)));
+            sendCommand(TmuxCommand(QStringLiteral("send-keys")).flag(QStringLiteral("-l")).paneTarget(paneId).arg(QString::fromUtf8(literal)));
         } else {
             // Collect run of hex-encoded characters (max 125)
             QStringList hexParts;
-            while (i < data.size() && !isLiteral(data[i]) && hexParts.size() < 125) {
-                unsigned char byte = static_cast<unsigned char>(data[i]);
-                if (byte == 0) {
+            while (i < data.size() && !isAsciiLiteral(data[i]) && !isUtf8LeadByte(static_cast<unsigned char>(data[i])) && hexParts.size() < 125) {
+                unsigned char b = static_cast<unsigned char>(data[i]);
+                if (b == 0) {
                     hexParts.append(QStringLiteral("C-Space"));
                 } else {
-                    hexParts.append(QStringLiteral("0x%1").arg(byte, 0, 16));
+                    hexParts.append(QStringLiteral("0x%1").arg(b, 0, 16));
                 }
                 i++;
             }

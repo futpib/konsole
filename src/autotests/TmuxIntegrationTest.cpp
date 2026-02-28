@@ -2823,6 +2823,92 @@ void TmuxIntegrationTest::testOscColorQueryNotLeakedAsKeystrokes()
     delete attach.mw.data();
 }
 
+void TmuxIntegrationTest::testCyrillicInputPreservesUtf8()
+{
+    const QString tmuxPath = TmuxTestDSL::findTmuxOrSkip();
+
+    TmuxTestDSL::SessionContext ctx;
+    TmuxTestDSL::setupTmuxSession(TmuxTestDSL::parse(QStringLiteral(R"(
+        ┌────────────────────────────────────────────────────────────────────────────────┐
+        │ cmd: bash --norc --noprofile                                                   │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        │                                                                                │
+        └────────────────────────────────────────────────────────────────────────────────┘
+    )")),
+                                  tmuxPath,
+                                  ctx);
+    auto cleanup = qScopeGuard([&] {
+        TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    });
+
+    TmuxTestDSL::AttachResult attach;
+    TmuxTestDSL::attachKonsole(tmuxPath, ctx.sessionName, attach);
+
+    // Find the pane session (not the gateway)
+    Session *paneSession = nullptr;
+    const auto sessions = attach.mw->viewManager()->sessions();
+    for (Session *s : sessions) {
+        if (s != attach.gatewaySession) {
+            paneSession = s;
+            break;
+        }
+    }
+    QVERIFY(paneSession);
+
+    // Spy on data sent to the tmux server (the gateway session's emulation).
+    // Every tmux command (like send-keys) goes through writeToGateway() which
+    // emits sendData on the gateway emulation.
+    QSignalSpy gatewaySpy(attach.gatewaySession->emulation(), &Emulation::sendData);
+
+    // Simulate typing Cyrillic text into the pane.
+    // This goes through: sendText → Vt102Emulation → sendData signal →
+    //   TmuxPaneManager lambda → TmuxGateway::sendKeys → writeToGateway
+    const QString cyrillicText = QStringLiteral("слоп");
+    paneSession->emulation()->sendText(cyrillicText);
+
+    // Let the event loop process
+    QTest::qWait(500);
+
+    // Collect all tmux commands sent to the gateway
+    QByteArray allCommands;
+    for (const auto &call : gatewaySpy) {
+        allCommands.append(call.at(0).toByteArray());
+    }
+
+    // The commands should use send-keys -l with the actual UTF-8 text,
+    // NOT hex-encoded individual bytes like "0xd0 0xb9 0xd1 0x86 0xd1 0x83 0xd0 0xba".
+    // If the bytes are sent as hex, tmux will interpret them as individual Latin-1 bytes
+    // rather than multi-byte UTF-8 characters, causing garbled display.
+    const QByteArray cyrillicUtf8 = cyrillicText.toUtf8();
+    bool containsLiteralCyrillic = allCommands.contains(cyrillicUtf8);
+
+    // Also check for the broken hex encoding pattern.
+    // "слоп" in UTF-8 is: d1 81 d0 bb d0 be d0 bf
+    // If broken, we'd see something like: send-keys ... 0xd1 0x81 0xd0 0xbb ...
+    bool containsHexEncoded = allCommands.contains("0xd0");
+
+    QVERIFY2(containsLiteralCyrillic,
+             qPrintable(QStringLiteral("Cyrillic text should be sent as literal UTF-8 via send-keys -l, "
+                                       "but the gateway received: %1")
+                            .arg(QString::fromUtf8(allCommands))));
+    QVERIFY2(!containsHexEncoded,
+             qPrintable(QStringLiteral("Cyrillic bytes should NOT be hex-encoded as individual bytes, "
+                                       "but the gateway received: %1")
+                            .arg(QString::fromUtf8(allCommands))));
+
+    // Cleanup
+    TmuxTestDSL::killTmuxSession(tmuxPath, ctx.sessionName);
+    QTRY_VERIFY_WITH_TIMEOUT(!attach.mw, 10000);
+    delete attach.mw.data();
+}
+
 void TmuxIntegrationTest::testTmuxAttachNoSessions()
 {
     const QString bashPath = QStandardPaths::findExecutable(QStringLiteral("bash"));
