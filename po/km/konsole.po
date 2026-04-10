@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: konsole\n"
 "Report-Msgid-Bugs-To: https://bugs.kde.org\n"
-"POT-Creation-Date: 2026-02-20 00:50+0000\n"
+"POT-Creation-Date: 2026-04-04 00:49+0000\n"
 "PO-Revision-Date: 2012-12-20 16:07+0700\n"
 "Last-Translator: sutha <sutha@khmeros.info>\n"
 "Language-Team: Khmer <support@khmeros>\n"
@@ -2033,7 +2033,7 @@ msgstr "បោះពុម្ព របៀប​ងាយស្រួល (អត
 msgid "&Scale output"
 msgstr "លទ្ធផល​មាត្រដ្ឋាន"
 
-#: profile/Profile.cpp:272
+#: profile/Profile.cpp:282
 #, kde-format
 msgctxt "Name of the built-in profile"
 msgid "Built-in"
@@ -2245,48 +2245,48 @@ msgctxt "@info:tooltip"
 msgid "Enter a tab name to search for here"
 msgstr "បញ្ចូល​អត្ថបទ​ដើម្បី​ស្វែងរក​នៅ ទីនេះ"
 
-#: session/Session.cpp:131
+#: session/Session.cpp:132
 #, fuzzy, kde-format
 #| msgid "Bell in session '%1'"
 msgid "Bell in '%1' (Session '%2')"
 msgstr "កណ្ដឹង​ក្នុង​សម័យ '%1'"
 
-#: session/Session.cpp:434
+#: session/Session.cpp:435
 #, kde-format
 msgid "Could not find binary: "
 msgstr "មិន​អាច​រក​គោល​ពីរ​បាន​ទេ ៖"
 
-#: session/Session.cpp:443
+#: session/Session.cpp:444
 #, kde-format
 msgctxt "@info:shell Alert the user with red color text"
 msgid "Warning: "
 msgstr "ការ​ព្រមាន ៖"
 
-#: session/Session.cpp:538
+#: session/Session.cpp:539
 #, kde-format
 msgid "Could not find an interactive shell to start."
 msgstr "មិន​អាច​រក​សែល​អន្តរកម្ម​ដើម្បី​ចាប់ផ្ដើម​បាន​ទេ ។"
 
-#: session/Session.cpp:544 session/Session.cpp:547
+#: session/Session.cpp:545 session/Session.cpp:548
 #, kde-format
 msgid ""
 "Could not find '%1', starting '%2' instead.  Please check your profile "
 "settings."
 msgstr "មិន​​អាច​រក '%1' ចាប់ផ្ដើម '%2' ជំនួស ។  សូម​ពិនិត្យ​​ការ​កំណត់​ទម្រង់​របស់​អ្នក ។"
 
-#: session/Session.cpp:640
+#: session/Session.cpp:641
 #, kde-format
 msgid "Could not start program '%1' with arguments '%2'."
 msgstr "មិន​អាច​ចាប់ផ្ដើម​កម្មវិធី '%1' ដែល​មាន​អាគុយម៉ង់ '%2' បាន​ទេ ។"
 
-#: session/Session.cpp:816
+#: session/Session.cpp:817
 #, fuzzy, kde-format
 #| msgid "Silence in session '%1'"
 msgid "Silence in '%1' (Session '%2')"
 msgstr "ស្ងាត់​ក្នុង​សម័យ '%1'"
 
-#: session/Session.cpp:817 session/Session.cpp:2249
-#: session/SessionController.cpp:376 session/SessionController.cpp:1921
+#: session/Session.cpp:818 session/Session.cpp:2326
+#: session/SessionController.cpp:376 session/SessionController.cpp:1922
 #: terminalDisplay/TerminalBell.cpp:44 Vt102Emulation.cpp:1255
 #: Vt102Emulation.cpp:1510
 #, fuzzy, kde-format
@@ -2295,34 +2295,34 @@ msgstr "ស្ងាត់​ក្នុង​សម័យ '%1'"
 msgid "Show session"
 msgstr "បិទ​បង្អួច"
 
-#: session/Session.cpp:1133
+#: session/Session.cpp:1134
 #, kde-format
 msgctxt "@info:shell This session is done"
 msgid "Finished"
 msgstr "បាន​បញ្ចប់"
 
-#: session/Session.cpp:1147 session/Session.cpp:1163
+#: session/Session.cpp:1148 session/Session.cpp:1164
 #, kde-format
 msgid "Program '%1' crashed."
 msgstr "កម្មវិធី '%1' បានគាំង ។"
 
-#: session/Session.cpp:1149
+#: session/Session.cpp:1150
 #, kde-format
 msgid "Program '%1' exited with status %2."
 msgstr "កម្មវិធី '%1' បាន​ចេញ​ដោយ​មាន​ស្ថានភាព %2 ។"
 
-#: session/Session.cpp:1700
+#: session/Session.cpp:1701
 #, kde-format
 msgid "ZModem Progress"
 msgstr "វឌ្ឍនភាព ZModem"
 
-#: session/Session.cpp:2248
+#: session/Session.cpp:2325
 #, fuzzy, kde-format
 #| msgid "Activity in session '%1'"
 msgid "Activity in '%1' (Session '%2')"
 msgstr "សកម្មភាព​ក្នុង​សម័យ '%1'"
 
-#: session/Session.cpp:2411
+#: session/Session.cpp:2596
 #, kde-format
 msgid "Security sensitive DBus API is disabled in the settings."
 msgstr ""
@@ -2369,299 +2369,299 @@ msgstr "បើក​កម្មវិធី​គ្រប់គ្រង​ឯ
 msgid "Copy"
 msgstr ""
 
-#: session/SessionController.cpp:692
+#: session/SessionController.cpp:693
 #, fuzzy, kde-format
 #| msgctxt "@action:inmenu"
 #| msgid "Split View Left/Right"
 msgid "Split View Left-Right"
 msgstr "ពុះ​ទិដ្ឋភាព​ទៅ​ឆ្វេង/ស្តាំ"
 
-#: session/SessionController.cpp:697
+#: session/SessionController.cpp:698
 #, fuzzy, kde-format
 #| msgctxt "@action:inmenu"
 #| msgid "Split View Top/Bottom"
 msgid "Split View Top-Bottom"
 msgstr "ពុះ​ទិដ្ឋភាព​ទៅ​កំពូល/បាត"
 
-#: session/SessionController.cpp:701
+#: session/SessionController.cpp:702
 #, kde-format
 msgid "Copy except prompts"
 msgstr ""
 
-#: session/SessionController.cpp:707
+#: session/SessionController.cpp:708
 #, fuzzy, kde-format
 #| msgid "Copy Input"
 msgid "Copy user input"
 msgstr "ចម្លង​ព័ត៌មាន​បញ្ចូល​"
 
-#: session/SessionController.cpp:713
+#: session/SessionController.cpp:714
 #, fuzzy, kde-format
 #| msgid "Copy Input"
 msgid "Copy command output"
 msgstr "ចម្លង​ព័ត៌មាន​បញ្ចូល​"
 
-#: session/SessionController.cpp:728
+#: session/SessionController.cpp:729
 #, kde-format
 msgid "Paste Selection"
 msgstr "បិទភ្ជាប់​ជម្រើស"
 
-#: session/SessionController.cpp:735
+#: session/SessionController.cpp:736
 #, kde-format
 msgid "Web Search"
 msgstr "ស្វែងរក​បណ្ដាញ"
 
-#: session/SessionController.cpp:741
+#: session/SessionController.cpp:742
 #, kde-format
 msgid "&Select All"
 msgstr "ជ្រើស​ទាំងអស់"
 
-#: session/SessionController.cpp:745
+#: session/SessionController.cpp:746
 #, fuzzy, kde-format
 #| msgid "Select Text"
 msgid "Select &Mode"
 msgstr "ជ្រើស​អត្ថបទ"
 
-#: session/SessionController.cpp:750
+#: session/SessionController.cpp:751
 #, fuzzy, kde-format
 #| msgid "Select Text"
 msgid "Select &Line"
 msgstr "ជ្រើស​អត្ថបទ"
 
-#: session/SessionController.cpp:753
+#: session/SessionController.cpp:754
 #, kde-format
 msgid "Save Output &As..."
 msgstr "រក្សាទុក​លទ្ធផល​ជា..."
 
-#: session/SessionController.cpp:759
+#: session/SessionController.cpp:760
 #, fuzzy, kde-format
 #| msgid "Save Output &As..."
 msgid "Auto Save Output As..."
 msgstr "រក្សាទុក​លទ្ធផល​ជា..."
 
-#: session/SessionController.cpp:763
+#: session/SessionController.cpp:764
 #, kde-format
 msgid "Stop Auto Save"
 msgstr ""
 
-#: session/SessionController.cpp:767
+#: session/SessionController.cpp:768
 #, kde-format
 msgid "&Print Screen..."
 msgstr "រូបថត​អេក្រង់..."
 
-#: session/SessionController.cpp:771
+#: session/SessionController.cpp:772
 #, kde-format
 msgid "Adjust Scrollback..."
 msgstr "លៃ​តម្រូវ​រមូរ​ថយក្រោយ..."
 
-#: session/SessionController.cpp:775
+#: session/SessionController.cpp:776
 #, kde-format
 msgid "Clear Scrollback"
 msgstr "សម្អាត​រមូរ​ថយក្រោយ"
 
-#: session/SessionController.cpp:779
+#: session/SessionController.cpp:780
 #, kde-format
 msgid "Clear Scrollback and Reset"
 msgstr "សម្អាត​រមូរ​ថយក្រោយ និង​កំណត់​ឡើងវិញ"
 
-#: session/SessionController.cpp:790
+#: session/SessionController.cpp:791
 #, fuzzy, kde-format
 #| msgid "Edit Profile"
 msgid "Next Profile"
 msgstr "កែ​សម្រួល​ទម្រង់​"
 
-#: session/SessionController.cpp:795
+#: session/SessionController.cpp:796
 #, fuzzy, kde-format
 #| msgctxt "@action:button Go to the previous phrase"
 #| msgid "Previous"
 msgid "Previous Profile"
 msgstr "រក​មុន"
 
-#: session/SessionController.cpp:798
+#: session/SessionController.cpp:799
 #, kde-format
 msgid "Switch Profile"
 msgstr "ប្ដូរ​ទម្រង់​"
 
-#: session/SessionController.cpp:823
+#: session/SessionController.cpp:824
 #, kde-format
 msgid "Set &Encoding"
 msgstr "កំណត់​ការ​អ៊ីនកូដ"
 
-#: session/SessionController.cpp:843
+#: session/SessionController.cpp:844
 #, kde-format
 msgctxt "@item:inmenu Allows terminal applications to request mouse tracking"
 msgid "Allow Mouse Tracking"
 msgstr ""
 
-#: session/SessionController.cpp:852
+#: session/SessionController.cpp:853
 #, kde-format
 msgctxt "@item:inmenu A read only (locked) session"
 msgid "Read-Only"
 msgstr ""
 
-#: session/SessionController.cpp:863
+#: session/SessionController.cpp:864
 #, fuzzy, kde-format
 #| msgid "&Rename Tab..."
 msgid "&Configure or Rename Tab..."
 msgstr "ប្តូរ​ឈ្មោះ​ផ្ទាំង​..."
 
-#: session/SessionController.cpp:869
+#: session/SessionController.cpp:870
 #, kde-format
 msgid "&All Tabs in Current Window"
 msgstr "ផ្ទាំង​ទាំង​អស់​នៅ​ក្នុង​បង្អួច​បច្ចុប្បន្ន"
 
-#: session/SessionController.cpp:876
+#: session/SessionController.cpp:877
 #, kde-format
 msgid "&Select Tabs..."
 msgstr "ជ្រើស​ផ្ទាំង..."
 
-#: session/SessionController.cpp:882
+#: session/SessionController.cpp:883
 #, kde-format
 msgctxt "@action:inmenu Do not select any tabs"
 msgid "&None"
 msgstr "គ្មាន"
 
-#: session/SessionController.cpp:890
+#: session/SessionController.cpp:891
 #, kde-format
 msgid "Copy Input To"
 msgstr "ចម្លង​ព័ត៌មាន​បញ្ចូល​ទៅ"
 
-#: session/SessionController.cpp:898
+#: session/SessionController.cpp:899
 #, kde-format
 msgid "&ZModem Upload..."
 msgstr "ផ្ទុក ZModem ឡើង..."
 
-#: session/SessionController.cpp:903
+#: session/SessionController.cpp:904
 #, kde-format
 msgid "One-Shot Monitors"
 msgstr ""
 
-#: session/SessionController.cpp:908
+#: session/SessionController.cpp:909
 #, fuzzy, kde-format
 #| msgid "Monitor for &Activity"
 msgid "Monitor for &Prompt"
 msgstr "ការ​ត្រួត​ពិនិត្យ​សកម្មភាព"
 
-#: session/SessionController.cpp:915
+#: session/SessionController.cpp:916
 #, kde-format
 msgid "Monitor for &Activity"
 msgstr "ការ​ត្រួត​ពិនិត្យ​សកម្មភាព"
 
-#: session/SessionController.cpp:921
+#: session/SessionController.cpp:922
 #, kde-format
 msgid "Monitor for &Silence"
 msgstr "ការ​ត្រួត​ពិនិត្យ​ភាព​ស្ងាត់"
 
-#: session/SessionController.cpp:927
+#: session/SessionController.cpp:928
 #, fuzzy, kde-format
 #| msgid "Monitor for &Activity"
 msgid "Monitor for Process Finishing"
 msgstr "ការ​ត្រួត​ពិនិត្យ​សកម្មភាព"
 
-#: session/SessionController.cpp:934
+#: session/SessionController.cpp:935
 #, kde-format
 msgid "Enlarge Font"
 msgstr "ពង្រីក​ពុម្ពអក្សរ"
 
-#: session/SessionController.cpp:942
+#: session/SessionController.cpp:943
 #, kde-format
 msgid "Shrink Font"
 msgstr "បង្រួញ​​ពុម្ពអក្សរ"
 
-#: session/SessionController.cpp:947
+#: session/SessionController.cpp:948
 #, kde-format
 msgid "Reset Font Size"
 msgstr ""
 
-#: session/SessionController.cpp:953
+#: session/SessionController.cpp:954
 #, kde-format
 msgid "Send Signal"
 msgstr "ផ្ញើ​សញ្ញា"
 
-#: session/SessionController.cpp:957
+#: session/SessionController.cpp:958
 #, kde-format
 msgid "&Suspend Task"
 msgstr "ផ្អាក​ភារកិច្ច"
 
-#: session/SessionController.cpp:962
+#: session/SessionController.cpp:963
 #, kde-format
 msgid "&Continue Task"
 msgstr "បន្ត​ភារកិច្ច"
 
-#: session/SessionController.cpp:967
+#: session/SessionController.cpp:968
 #, kde-format
 msgid "&Hangup"
 msgstr "&Hangup"
 
-#: session/SessionController.cpp:972
+#: session/SessionController.cpp:973
 #, kde-format
 msgid "&Interrupt Task"
 msgstr "ផ្អាក​ភារកិច្ច"
 
-#: session/SessionController.cpp:977
+#: session/SessionController.cpp:978
 #, kde-format
 msgid "&Terminate Task"
 msgstr "បញ្ចប់​ដំណើរការ​ភារកិច្ច"
 
-#: session/SessionController.cpp:982
+#: session/SessionController.cpp:983
 #, kde-format
 msgid "&Kill Task"
 msgstr "បញ្ឈប់​​ភារកិច្ច"
 
-#: session/SessionController.cpp:987
+#: session/SessionController.cpp:988
 #, kde-format
 msgid "User Signal &1"
 msgstr "សញ្ញា​អ្នក​ប្រើ &1"
 
-#: session/SessionController.cpp:992
+#: session/SessionController.cpp:993
 #, kde-format
 msgid "User Signal &2"
 msgstr "សញ្ញា​របស់​អ្នក​ប្រើ &2"
 
-#: session/SessionController.cpp:1010
+#: session/SessionController.cpp:1011
 #, fuzzy, kde-format
 #| msgid "&New Profile..."
 msgid "Create New Profile..."
 msgstr "ទម្រង់​ថ្មី..."
 
-#: session/SessionController.cpp:1012
+#: session/SessionController.cpp:1013
 #, kde-format
 msgid "Edit Current Profile..."
 msgstr "កែសម្រួល​ទម្រង់​បច្ចុប្បន្ន..."
 
-#: session/SessionController.cpp:1152
+#: session/SessionController.cpp:1153
 #, kde-format
 msgid ""
 "A program is currently running in this session.  Are you sure you want to "
 "close it?"
 msgstr "បច្ចុប្បន្ន​នេះ កម្មវិធី​មួយ​កំពុង​រត់​នៅ​ក្នុង​សម័យ​នេះ ។ តើ​អ្នក​ពិតជា​ចង់​បិទ​វា​ឬ ?"
 
-#: session/SessionController.cpp:1156
+#: session/SessionController.cpp:1157
 #, kde-format
 msgid ""
 "The program '%1' is currently running in this session.  Are you sure you "
 "want to close it?"
 msgstr "បច្ចុប្បន្ន កម្មវិធី '%1' កំពុង​​ដំណើរការ​​នៅ​ក្នុង​សម័យ​នេះ ។ តើ​អ្នក​ពិតជា​ចង់​បិទ​វា​ឬ ?"
 
-#: session/SessionController.cpp:1163 session/SessionController.cpp:1198
+#: session/SessionController.cpp:1164 session/SessionController.cpp:1199
 #, kde-format
 msgid "Confirm Close"
 msgstr "បិទ​ការ​អះអាង"
 
-#: session/SessionController.cpp:1164
+#: session/SessionController.cpp:1165
 #, fuzzy, kde-format
 #| msgid "&Close Tab"
 msgctxt "@action:button"
 msgid "Close Program"
 msgstr "បិទ​ផ្ទាំង​"
 
-#: session/SessionController.cpp:1187
+#: session/SessionController.cpp:1188
 #, kde-format
 msgid ""
 "A program in this session would not die.  Are you sure you want to kill it "
 "by force?"
 msgstr "កម្មវិធី​នៅ​ក្នុង​សម័យ​នេះ​មិន​គួរ​ត្រូវ​បាន​បិទ​ទេ ។ តើ​អ្នក​ពិតជា​ចង់​បិទ​វា​ដោយ​បង្ខំ​មែន​ឬ ?"
 
-#: session/SessionController.cpp:1191
+#: session/SessionController.cpp:1192
 #, fuzzy, kde-format
 #| msgid ""
 #| "The program '%1' is in this session would not die.  Are you sure you want "
@@ -2672,29 +2672,29 @@ msgid ""
 msgstr ""
 "កម្មវិធី '%1' ដែល​មាន​នៅ​ក្នុង​សម័យ​នេះ​មិន​គួរ​ត្រូវ​បាន​បិទ​ទេ ។ តើ​អ្នក​ពិតជា​ចង់​បិទ​វា​ដោយ​បង្ខំ​មែន​ឬ ?"
 
-#: session/SessionController.cpp:1199
+#: session/SessionController.cpp:1200
 #, kde-format
 msgctxt "@action:button"
 msgid "Kill Program"
 msgstr ""
 
-#: session/SessionController.cpp:1920
+#: session/SessionController.cpp:1921
 #, kde-format
 msgid "The shell prompt is displayed in session '%1'"
 msgstr ""
 
-#: session/SessionController.cpp:2150
+#: session/SessionController.cpp:2151
 #, kde-format
 msgid "Open Current Folder With"
 msgstr ""
 
-#: session/SessionController.cpp:2220
+#: session/SessionController.cpp:2221
 #, fuzzy, kde-format
 #| msgid "Save ZModem Download to..."
 msgid "Save ZModem Download to..."
 msgstr "រក្សាទុក​ការទាញយក ZModem ទៅ​​ក្នុង..."
 
-#: session/SessionController.cpp:2230
+#: session/SessionController.cpp:2231
 #, kde-format
 msgid ""
 "<p>A ZModem file transfer attempt has been detected, but no suitable ZModem "
@@ -2704,13 +2704,13 @@ msgstr ""
 "<p>ការ​ប៉ុនប៉ង​ផ្ទេរ​ឯកសារ​របស់ ZModem ត្រូវ​បាន​រក​ឃើញ ប៉ុន្តែ​រក​ឃើញ​កម្មវិធី ZModem មិន​សមរម្យ​នៅ​ក្នុង​"
 "ប្រព័ន្ធ​នេះ ។</p><p>អ្នក​អាច​ដំឡើង​កញ្ចប់ 'rzsz' ឬ 'lrzsz' ។</p>"
 
-#: session/SessionController.cpp:2240
+#: session/SessionController.cpp:2241
 #, kde-format
 msgid ""
 "<p>The current session already has a ZModem file transfer in progress.</p>"
 msgstr "<p>សម័យ​បច្ចុប្បន្ន​មាន​ការ​ផ្ទេរឯកសារ ZModem កំពុង​ដំណើរការ​រួច​ហើយ ។</p>"
 
-#: session/SessionController.cpp:2253
+#: session/SessionController.cpp:2254
 #, kde-format
 msgid ""
 "<p>No suitable ZModem software was found on this system.</p><p>You may wish "
@@ -2719,7 +2719,7 @@ msgstr ""
 "<p>រក​មិនឃើញ​កម្មវិធី ZModem ដែល​សមរម្យ​នៅ​ក្នុង​ប្រព័ន្ធ​នេះ​ទេ ។</p><p>អ្នក​អាច​ដំឡើង​​កញ្ចប់  "
 "'rzsz' ឬ 'lrzsz' ។</p>"
 
-#: session/SessionController.cpp:2258
+#: session/SessionController.cpp:2259
 #, kde-format
 msgid "Select Files for ZModem Upload"
 msgstr "ជ្រើស​ឯកសារ​សម្រាប់​ផ្ទុក ZModem ឡើង"
@@ -3600,93 +3600,93 @@ msgstr "បើក​ការ​បង្កើន​ល្បឿន​ម៉ឺ
 msgid "Size: %1 x %2"
 msgstr "ទំហំ ៖ %1 x %2"
 
-#: terminalDisplay/TerminalDisplay.cpp:2319
+#: terminalDisplay/TerminalDisplay.cpp:2421
 #, kde-format
 msgid "Are you sure you want to paste %1 character?"
 msgid_plural "Are you sure you want to paste %1 characters?"
 msgstr[0] ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2320
+#: terminalDisplay/TerminalDisplay.cpp:2422
 #, fuzzy, kde-format
 #| msgid "Confirm Close"
 msgid "Confirm Paste"
 msgstr "បិទ​ការ​អះអាង"
 
-#: terminalDisplay/TerminalDisplay.cpp:2353
+#: terminalDisplay/TerminalDisplay.cpp:2455
 #, kde-format
 msgid "End Of Text/Interrupt: may exit the current process"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2354
+#: terminalDisplay/TerminalDisplay.cpp:2456
 #, kde-format
 msgid "End Of Transmission: may exit the current process"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2355
+#: terminalDisplay/TerminalDisplay.cpp:2457
 #, kde-format
 msgid "Bell: will try to emit an audible warning"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2356
+#: terminalDisplay/TerminalDisplay.cpp:2458
 #, kde-format
 msgid "Backspace"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2357
+#: terminalDisplay/TerminalDisplay.cpp:2459
 #, kde-format
 msgid "Device Control Three/XOFF: suspends output"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2358
+#: terminalDisplay/TerminalDisplay.cpp:2460
 #, kde-format
 msgid "Substitute/Suspend: may suspend current process"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2359
+#: terminalDisplay/TerminalDisplay.cpp:2461
 #, kde-format
 msgid "Escape: used for manipulating terminal state"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2360
+#: terminalDisplay/TerminalDisplay.cpp:2462
 #, kde-format
 msgid "File Separator/Quit: may abort the current process"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2383
+#: terminalDisplay/TerminalDisplay.cpp:2485
 #, kde-format
 msgid ""
 "The text you're trying to paste contains hidden control characters, do you "
 "want to filter them out?"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2386
+#: terminalDisplay/TerminalDisplay.cpp:2488
 #, fuzzy, kde-format
 #| msgid "Confirm Close"
 msgctxt "@title"
 msgid "Confirm Paste"
 msgstr "បិទ​ការ​អះអាង"
 
-#: terminalDisplay/TerminalDisplay.cpp:2387
+#: terminalDisplay/TerminalDisplay.cpp:2489
 #, fuzzy, kde-format
 #| msgid "Set cursor color to match current character"
 msgctxt "@action:button"
 msgid "Paste &without control characters"
 msgstr "កំណត់​ទស្សន៍ទ្រនិច​ដើម្បី​ផ្គូផ្គង​តួ​អក្សរ​បច្ចុប្បន្ន"
 
-#: terminalDisplay/TerminalDisplay.cpp:2388
+#: terminalDisplay/TerminalDisplay.cpp:2490
 #, fuzzy, kde-format
 #| msgid "Paste Selection"
 msgctxt "@action:button"
 msgid "&Paste everything"
 msgstr "បិទភ្ជាប់​ជម្រើស"
 
-#: terminalDisplay/TerminalDisplay.cpp:2389
+#: terminalDisplay/TerminalDisplay.cpp:2491
 #, kde-format
 msgctxt "@action:button"
 msgid "&Cancel"
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:2620
+#: terminalDisplay/TerminalDisplay.cpp:2722
 #, fuzzy, kde-format
 #| msgid ""
 #| "<qt>Output has been <a href=\"http://en.wikipedia.org/wiki/Flow_control"
@@ -3699,17 +3699,17 @@ msgstr ""
 "<qt>លទ្ធផលត្រូវ​បានផ្អាក <a href=\"http://en.wikipedia.org/wiki/XON\">ផ្អាក​</a> ដោយ​"
 "ចុច​បញ្ជា(Crtl)​+S ។ ចុច​<b>បញ្ជា​(Ctrl)+Q</b> ដើម្បី​ធ្វើ​បន្ត​​ ។</qt>"
 
-#: terminalDisplay/TerminalDisplay.cpp:2675
+#: terminalDisplay/TerminalDisplay.cpp:2777
 #, kde-format
 msgid "This terminal is read-only."
 msgstr ""
 
-#: terminalDisplay/TerminalDisplay.cpp:3081
+#: terminalDisplay/TerminalDisplay.cpp:3183
 #, kde-format
 msgid "Change &Directory To"
 msgstr "ផ្លាស់ប្ដូរ​ថត​ទៅកាន់"
 
-#: terminalDisplay/TerminalDisplay.cpp:3116
+#: terminalDisplay/TerminalDisplay.cpp:3218
 #, kde-format
 msgid "&Paste Location"
 msgstr "បិទភ្ជាប់​ទីតាំង"
@@ -4504,8 +4504,10 @@ msgstr "ចំនួន​ភីកសែល​រវាង​បន្ទាត
 
 #. i18n: ectx: property (suffix), widget (QSpinBox, lineSpacingSpinner)
 #. i18n: ectx: property (suffix), widget (QSpinBox, marginsSpinner)
+#. i18n: ectx: property (suffix), widget (QSpinBox, badgeFontSizeSpinner)
 #: widgets/EditProfileAppearancePage.ui:660
 #: widgets/EditProfileAppearancePage.ui:712
+#: widgets/EditProfileAppearancePage.ui:1207
 #, kde-format
 msgctxt "(pixels) visual size unit"
 msgid " px"
@@ -4676,6 +4678,136 @@ msgstr "កំណត់​ទស្សន៍ទ្រនិច​ដើម្ប
 #: widgets/EditProfileAppearancePage.ui:1028
 #, kde-format
 msgid "Override wcwidth"
+msgstr ""
+
+#. i18n: ectx: property (toolTip), widget (QWidget, badgeTab)
+#: widgets/EditProfileAppearancePage.ui:1049
+#, kde-format
+msgid "<html><head/><body><p>Badge overlay options</p></body></html>"
+msgstr ""
+
+#. i18n: ectx: attribute (title), widget (QWidget, badgeTab)
+#. i18n: ectx: property (text), widget (QCheckBox, badgeEnabled)
+#: widgets/EditProfileAppearancePage.ui:1052
+#: widgets/EditProfileAppearancePage.ui:1082
+#, kde-format
+msgid "Badge Overlay"
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badgeOverlayLabel)
+#: widgets/EditProfileAppearancePage.ui:1062
+#, kde-format
+msgid "Badge Overlay Options"
+msgstr ""
+
+#. i18n: ectx: property (toolTip), widget (QCheckBox, badgeEnabled)
+#: widgets/EditProfileAppearancePage.ui:1079
+#, fuzzy, kde-format
+#| msgid "Enable Bi-Directional text rendering"
+msgid "Enable badge overlay rendering"
+msgstr "អនុញ្ញាត​ការ​បង្ហាញ​អត្ថបទ Bi-Directional"
+
+#. i18n: ectx: property (toolTip), widget (QLabel, badge_label_1)
+#. i18n: ectx: property (toolTip), widget (QLineEdit, badgeTextEdit)
+#: widgets/EditProfileAppearancePage.ui:1089
+#: widgets/EditProfileAppearancePage.ui:1110
+#, kde-format
+msgctxt "@info:tooltip"
+msgid "Default text of badge."
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badge_label_1)
+#: widgets/EditProfileAppearancePage.ui:1092
+#, kde-format
+msgid "Badge text:"
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badgeVariablesHelpLabel)
+#: widgets/EditProfileAppearancePage.ui:1118
+#, kde-format
+msgid ""
+"<html><head/><body><p><small><b>Available variables:</b> \\(session.title), "
+"\\(session.name), \\(session.id), \\(session.directory), \\(session."
+"hostname), \\(session.process), \\(env.VARIABLE_NAME)</small></p></body></"
+"html>"
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badgeEscapeSequenceHelpLabel)
+#: widgets/EditProfileAppearancePage.ui:1138
+#, kde-format
+msgid ""
+"<html><head/><body><p><small><b>Badge configuration:</b><br/>Use profile "
+"settings on this page to configure badge text, color, font, text-only mode "
+"and transparency.</small></p></body></html>"
+msgstr ""
+
+#. i18n: ectx: property (toolTip), widget (QLabel, badge_label_2)
+#. i18n: ectx: property (toolTip), widget (QLineEdit, badgeFontEdit)
+#: widgets/EditProfileAppearancePage.ui:1158
+#: widgets/EditProfileAppearancePage.ui:1179
+#, kde-format
+msgctxt "@info:tooltip"
+msgid "Badge font family."
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badge_label_2)
+#: widgets/EditProfileAppearancePage.ui:1161
+#, kde-format
+msgid "Badge font family:"
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badgeFontSizeLabel)
+#: widgets/EditProfileAppearancePage.ui:1194
+#, kde-format
+msgid "Badge font size:"
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badgeColorLabel)
+#: widgets/EditProfileAppearancePage.ui:1224
+#, fuzzy, kde-format
+#| msgctxt "@label:listbox Column header text for the actual colors"
+#| msgid "Color"
+msgid "Badge color:"
+msgstr "ពណ៌"
+
+#. i18n: ectx: property (toolTip), widget (KColorButton, badgeColorSelectButton)
+#: widgets/EditProfileAppearancePage.ui:1237
+#, fuzzy, kde-format
+#| msgid "Select the color used to draw the cursor"
+msgid "Select the color used to draw the badge"
+msgstr "ជ្រើស​ពណ៌​ដែល​ត្រូវ​ប្រើ​សម្រាប់​គូរ​ទស្សន៍ទ្រនិច"
+
+#. i18n: ectx: property (toolTip), widget (QCheckBox, badgeTextOnlyCheckBox)
+#: widgets/EditProfileAppearancePage.ui:1251
+#, kde-format
+msgid "Display badge as text only without background rectangle"
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QCheckBox, badgeTextOnlyCheckBox)
+#: widgets/EditProfileAppearancePage.ui:1254
+#, fuzzy, kde-format
+#| msgctxt "@item:intable palette"
+#| msgid "Background"
+msgid "Text only (no background)"
+msgstr "ផ្ទៃ​ខាងក្រោយ"
+
+#. i18n: ectx: property (text), widget (QLabel, badgeTransparencyLabel)
+#: widgets/EditProfileAppearancePage.ui:1268
+#, fuzzy, kde-format
+#| msgid "Background transparency:"
+msgid "Transparency:"
+msgstr "ភាពថ្លា​ផ្ទៃ​ខាងក្រោយ ៖"
+
+#. i18n: ectx: property (toolTip), widget (QSlider, badgeTransparencySlider)
+#: widgets/EditProfileAppearancePage.ui:1295
+#, kde-format
+msgid "Set badge transparency (0 = fully transparent, 255 = opaque)"
+msgstr ""
+
+#. i18n: ectx: property (text), widget (QLabel, badgeTransparencyValueLabel)
+#: widgets/EditProfileAppearancePage.ui:1302
+#, kde-format
+msgid "180"
 msgstr ""
 
 #: widgets/EditProfileDialog.cpp:70
@@ -4860,20 +4992,20 @@ msgstr "ជ្រើស​ថត​ដំបូង​"
 msgid "Get New..."
 msgstr "ថ្មី..."
 
-#: widgets/EditProfileDialog.cpp:1406
+#: widgets/EditProfileDialog.cpp:1445
 #, kde-kuit-format
 msgctxt "@info"
 msgid "Scheme <resource>%1</resource> failed to load."
 msgstr ""
 
-#: widgets/EditProfileDialog.cpp:1588
+#: widgets/EditProfileDialog.cpp:1627
 #, kde-format
 msgid ""
 "This color scheme uses a transparent background which does not appear to be "
 "supported on your desktop"
 msgstr "ពណ៌​ចម្រុះ​នេះ​មាន​ផ្ទៃ​ខាងក្រោយ​ថ្លា​ ដែល​មិន​ត្រូវ​បាន​គាំទ្រ​នៅ​លើ​ផ្ទៃ​តុ​របស់​អ្នក​ទេ"
 
-#: widgets/EditProfileDialog.cpp:1594
+#: widgets/EditProfileDialog.cpp:1633
 #, kde-format
 msgid ""
 "Konsole was started before desktop effects were enabled. You need to restart "
@@ -4882,13 +5014,13 @@ msgstr ""
 "កុងសូល​បាន​ចាប់ផ្ដើម​នៅ​មុន​ពេល​បើក​បែបផែន​ផ្ទៃតុ ។ អ្នក​ចាំបាច់​ត្រូវតែ​ចាប់ផ្ដើម​កុងសូល​ឡើងវិញ​ដើម្បី​ឃើញ​ផ្ទៃ​"
 "ខាងក្រោយ​ថ្លា ។"
 
-#: widgets/EditProfileDialog.cpp:1995
+#: widgets/EditProfileDialog.cpp:2034
 #, fuzzy, kde-format
 #| msgid "Default profile"
 msgid "Default for file type"
 msgstr "ទម្រង់​លំនាំដើម"
 
-#: widgets/EditProfileDialog.cpp:2021
+#: widgets/EditProfileDialog.cpp:2060
 #, kde-format
 msgid ""
 "The format is e.g. 'editorExec PATH:LINE:COLUMN'\n"
@@ -4905,7 +5037,7 @@ msgid ""
 "editor."
 msgstr ""
 
-#: widgets/EditProfileDialog.cpp:2034
+#: widgets/EditProfileDialog.cpp:2073
 #, kde-format
 msgid "Text Editor Custom Command"
 msgstr ""
